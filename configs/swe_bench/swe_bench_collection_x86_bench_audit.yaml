@@ -1,0 +1,13 @@
+benchmark_name: swe_bench
+benchmark_type: swe_bench
+agent_cli: claude
+model: claude-opus-4-7
+output_subdir: claude_x86_fetch_tests_v3_opus_4_7
+benchmark_data_dir: ${SWEBENCH_DIR}/data/Verified/tasks
+results_dir: ${SWEBENCH_DIR}/swe-bench-results/swebench_verified_test_gpt-5.4_x86
+runs_dir: ${SWEBENCH_DIR}/swe-b-runs/swe-bench-verified-openai__gpt-5.4
+jobs_type: actual
+fetch_test_sources: true
+
+code_url: https://github.com/SWE-bench/SWE-bench
+benchmark_repo_dir: ${BENCHMARK_REPOS_DIR}/swe-bench/repo

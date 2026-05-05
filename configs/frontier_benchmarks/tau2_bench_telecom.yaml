@@ -1,0 +1,12 @@
+benchmark_name: tau2_bench_telecom
+benchmark_type: neurips
+agent_cli: claude
+model: claude-opus-4-7
+output_subdir: v1
+
+code_url: https://github.com/sierra-research/tau2-bench
+benchmark_data_dir: ${BENCHMARK_REPOS_DIR}/tau2_bench_telecom/data
+benchmark_repo_dir: ${BENCHMARK_REPOS_DIR}/tau2_bench_telecom/repo
+
+domain_categories:
+  - agent_interactive

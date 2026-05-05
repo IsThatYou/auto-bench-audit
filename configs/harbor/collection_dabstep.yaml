@@ -1,0 +1,11 @@
+benchmark_name: dabstep
+benchmark_type: tb2
+agent_cli: claude
+model: claude-opus-4-7
+output_subdir: opus_4_7
+benchmark_data_dir: ${HARBOR_DATASETS_DIR}/dabstep
+jobs_dir: ${TB2_JOBS_DIR}/2026-04-09__01-28-25
+jobs_type: actual
+
+code_url: https://huggingface.co/spaces/adyen/DABstep
+benchmark_repo_dir: ${BENCHMARK_REPOS_DIR}/dabstep/repo

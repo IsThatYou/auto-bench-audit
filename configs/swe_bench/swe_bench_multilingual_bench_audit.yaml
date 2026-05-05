@@ -1,0 +1,13 @@
+benchmark_name: swe_bench_multilingual
+benchmark_type: swe_bench
+agent_cli: claude
+model: claude-opus-4-7
+output_subdir: opus_4_7
+benchmark_data_dir: ${SWEBENCH_DIR}/data/Multilingual/tasks
+results_dir: ${SWEBENCH_DIR}/swe-bench-results/swe-bench-results_multilingual
+runs_dir: ${SWEBENCH_DIR}/swe-b-runs/swe-bench-multilingual-openai__gpt-5.4
+jobs_type: actual
+fetch_test_sources: true
+
+code_url: https://github.com/SWE-bench/SWE-bench
+benchmark_repo_dir: ${BENCHMARK_REPOS_DIR}/swe-bench/repo

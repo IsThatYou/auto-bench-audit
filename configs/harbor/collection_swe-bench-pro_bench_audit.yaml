@@ -1,0 +1,11 @@
+benchmark_name: swe-bench-pro
+benchmark_type: tb2
+agent_cli: claude
+model: claude-opus-4-7
+output_subdir: opus_4_7
+benchmark_data_dir: ${HARBOR_DATASETS_DIR}/swebenchpro
+jobs_dir: ${TB2_JOBS_DIR}/2026-04-05__02-25-25
+jobs_type: actual
+
+code_url: https://github.com/scaleapi/SWE-bench_Pro-os
+benchmark_repo_dir: ${BENCHMARK_REPOS_DIR}/swe-bench-pro/repo

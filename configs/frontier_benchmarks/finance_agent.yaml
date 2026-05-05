@@ -1,0 +1,13 @@
+benchmark_name: finance_agent
+benchmark_type: neurips
+agent_cli: claude
+model: claude-opus-4-7
+output_subdir: v1
+
+code_url: https://github.com/vals-ai/finance-agent
+benchmark_data_dir: ${BENCHMARK_REPOS_DIR}/finance_agent/data
+benchmark_repo_dir: ${BENCHMARK_REPOS_DIR}/finance_agent/repo
+
+domain_categories:
+  - social_economic
+  - agent_interactive

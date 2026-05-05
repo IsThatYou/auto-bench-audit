@@ -17,9 +17,11 @@ wheels/
 .DS_Store
 
 # Streaming pipeline runtime state
-configs/multi_domain_all/streaming_pipeline_tracking*.json
-configs/multi_domain_all/.streaming_pipeline.lock
-configs/multi_domain_all/.tracking.lock
+configs/**/streaming_pipeline_tracking*.json
+configs/**/.streaming_pipeline.lock
+configs/**/.tracking.lock
+configs/**/sample_log.json
+configs/**/tracking.json
 
 # Audit outputs
 data/

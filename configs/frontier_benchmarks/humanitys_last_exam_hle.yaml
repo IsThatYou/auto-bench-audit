@@ -1,0 +1,12 @@
+benchmark_name: humanitys_last_exam_hle
+benchmark_type: neurips
+agent_cli: claude
+model: claude-opus-4-7
+output_subdir: v1
+
+code_url: https://github.com/centerforaisafety/hle
+benchmark_data_dir: ${BENCHMARK_REPOS_DIR}/humanitys_last_exam_hle/data
+benchmark_repo_dir: ${BENCHMARK_REPOS_DIR}/humanitys_last_exam_hle/repo
+
+domain_categories:
+  - nlp_text
