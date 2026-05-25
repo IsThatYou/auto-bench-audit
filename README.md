@@ -1,16 +1,12 @@
-<h1 align="center">Automated Benchmark Audit (ABA)</h1>
+# auto-bench-audit: Automated Auditing for LLM & Agent Benchmarks
 
-<p align="center">
-  🌐 <a href="https://autobenchaudit.com">autobenchaudit.com</a>
-</p>
+🌐 [autobenchaudit.com](https://autobenchaudit.com)
 
-<p align="center">
-ABA is an auditing pipeline for agent and llm benchmarks that surfaces task ambiguity, environment conflicts, and evaluation issues. This code repo contains pipeline to run (1) a benchmark-level audit (2) samples tasks, and produces task-level audit so benchmark authors and users can trust the scores they report.
-</p>
+`auto-bench-audit` (ABA) is an automated benchmark auditing pipeline for agent and LLM benchmarks that surfaces task ambiguity, environment conflicts, and evaluation issues. The pipeline runs (1) a benchmark-level audit, (2) samples tasks, and (3) produces a task-level audit, so benchmark authors and users can trust the scores they report.
 
 ## Overview
 
-Modern LLM benchmarks sit behind containerized environments, multi-stage harnesses, and grading logic that depends on runtime state — a complexity that outpaces manual review. ABA is an agentic framework that systematically audits these benchmarks and surfaces issues that even original authors miss: hidden environment dependencies, implicit specification gaps, and brittle evaluation logic.
+Modern LLM benchmarks sit behind containerized environments, multi-stage harnesses, and grading logic that depends on runtime state — a complexity that outpaces manual review. `auto-bench-audit` is an agentic framework that systematically audits these benchmarks and surfaces issues that even original authors miss: hidden environment dependencies, implicit specification gaps, and brittle evaluation logic.
 
 The pipeline is benchmark-agnostic and operates across agentic, patch-based, and static-QA benchmarks under a single protocol. A deterministic evidence collector resolves each benchmark's heterogeneous artifacts (repo, dataset, recorded trajectories) into a uniform manifest, after which the framework emits structured per-task findings — each citing the file path it was drawn from — and can suggest targeted fixes alongside them.
 
@@ -77,7 +73,7 @@ bench-audit audit-tasks \
 
 **Trajectory audit** — the auditor additionally reads recorded agent traces (`trajectory_path`) and test outputs (`test_output_path`), allowing it to catch runtime issues that static inspection cannot.
 
-If you do not already have recorded trajectories, ABA can generate them by wrapping [Harbor](https://github.com/harbor-framework/harbor). The example below runs Claude Code Sonnet on Terminal-Bench 2 and writes a ready-to-audit collection config to `configs/harbor/collection_<name>.yaml`:
+If you do not already have recorded trajectories, `auto-bench-audit` can generate them by wrapping [Harbor](https://github.com/harbor-framework/harbor). The example below runs Claude Code Sonnet on Terminal-Bench 2 and writes a ready-to-audit collection config to `configs/harbor/collection_<name>.yaml`:
 
 ```bash
 # 1. Generate trajectories via Harbor (writes collection_<name>.yaml).
@@ -96,7 +92,7 @@ bench-audit audit-tasks \
 ## Project Layout
 
 ```
-bench_audit_clean/
+auto-bench-audit/
 ├── benchmarks/        # Benchmark categorization (multi-domain)
 ├── configs/           # Per-benchmark YAML configs (multi_domain_all)
 ├── rubrics/           # benchmark_rubric.txt + task_rubric_ambiguity_v3.txt
@@ -104,3 +100,4 @@ bench_audit_clean/
 ├── src/bench_audit/   # Audit CLI implementation
 └── pyproject.toml
 ```
+
