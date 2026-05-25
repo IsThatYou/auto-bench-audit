@@ -1,4 +1,4 @@
-Per-task audit rubric for coding benchmarks. A finding is a gap between what the prompt tells the agent and what the tests actually require.
+Per-task audit rubric for benchmarks. A finding is a gap between what the prompt tells the agent and what the tests actually require.
 
 Findings fall into one of three categories: ambiguity_underspecification (the prompt is unclear, vague, or missing information needed to pass), tests (the tests are too narrow, too broad, or check something other than what the prompt describes), or environment_conflict (the provided environment, files, or dependencies contradict or block what the prompt asks for).
 

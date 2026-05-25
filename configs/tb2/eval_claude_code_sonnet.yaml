@@ -1,0 +1,26 @@
+jobs_dir: ${TB2_JOBS_DIR}
+n_attempts: 5
+timeout_multiplier: 1.0
+orchestrator:
+  type: local
+  n_concurrent_trials: 6
+  quiet: false
+environment:
+  type: docker
+  force_build: true
+  delete: true
+  env:
+  - OPENAI_API_KEY=${OPENAI_API_KEY}
+  - OPENAI_BASE_URL="https://api.openai.com/v1"
+  - CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN}
+agents:
+- name: claude-code
+  model_name: anthropic/claude-sonnet-4-6
+  kwargs:
+    version: 2.1.76
+datasets:
+- name: terminal-bench
+  version: '2.0'
+  registry: {}
+  download_dir: ${HARBOR_DATASETS_DIR}/tb2
+  # task_names: [extract-elf]

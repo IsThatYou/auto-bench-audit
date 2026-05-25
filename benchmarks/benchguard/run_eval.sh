@@ -11,21 +11,21 @@ fi
 BENCH="$1"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$REPO_ROOT"
 
 # Load .env (GOOGLE_API=...) and remap to LiteLLM's expected name.
-if [[ -f bench_audit/.env ]]; then
+if [[ -f "$REPO_ROOT/.env" ]]; then
   set -a
   # shellcheck disable=SC1091
-  source bench_audit/.env
+  source "$REPO_ROOT/.env"
   set +a
 fi
 if [[ -z "${GEMINI_API_KEY:-}" && -n "${GOOGLE_API:-}" ]]; then
   export GEMINI_API_KEY="$GOOGLE_API"
 fi
 if [[ -z "${GEMINI_API_KEY:-}" ]]; then
-  echo "ERROR: GEMINI_API_KEY not set (and GOOGLE_API not in bench_audit/.env)" >&2
+  echo "ERROR: GEMINI_API_KEY not set (and GOOGLE_API not in $REPO_ROOT/.env)" >&2
   exit 1
 fi
 
