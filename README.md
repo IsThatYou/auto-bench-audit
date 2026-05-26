@@ -1,6 +1,9 @@
-# auto-bench-audit: Automated Auditing for LLM & Agent Benchmarks
+<h1 align="center">Automated Auditing for LLM &amp; Agent Benchmarks</h1>
 
-🌐 [autobenchaudit.com](https://autobenchaudit.com)
+<p align="center">
+  🌐 <a href="https://autobenchaudit.com">autobenchaudit.com</a> &nbsp;·&nbsp;
+  📄 <a href="https://arxiv.org/abs/2605.26079v1">Paper</a>
+</p>
 
 `auto-bench-audit` (ABA) is an automated benchmark auditing pipeline for agent and LLM benchmarks that surfaces task ambiguity, environment conflicts, and evaluation issues. The pipeline runs (1) a benchmark-level audit, (2) samples tasks, and (3) produces a task-level audit, so benchmark authors and users can trust the scores they report.
 

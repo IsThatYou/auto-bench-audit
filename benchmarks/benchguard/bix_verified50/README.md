@@ -1,18 +1,3 @@
----
-license: apache-2.0
-task_categories:
-  - question-answering
-language:
-  - en
-tags:
-  - biology
-  - bioinformatics
-  - benchmark
-  - bixbench
-size_categories:
-  - n<1K
----
-
 # BixBench-Verified-50
 
 A curated subset of [BixBench](https://huggingface.co/datasets/futurehouse/BixBench) with 50 verified questions across 33 unique data capsules, designed for reliable evaluation of AI agents on computational biology tasks.
@@ -80,18 +65,29 @@ import pandas as pd
 df = pd.read_json("BixBench-Verified-50.jsonl", lines=True)
 ```
 
-## Citation
+## Local Copy in This Repository
 
-If you use this dataset, please cite the original BixBench paper:
+The dataset file, comparison CSV, and smaller capsules are checked in. Ten capsule zips exceed GitHub's 100 MB per-file limit and are omitted (and listed in `.gitignore` so they cannot be re-staged accidentally):
 
-```bibtex
-@article{mitchener2025bixbench,
-  title={BixBench: a Comprehensive Benchmark for LLM-based Agents in Computational Biology},
-  author={Mitchener, Ludovico and Laurent, Jon M and Andonian, Alex and Tenmann, Benjamin and Narayanan, Siddharth and Wellawatte, Geemi P and White, Andrew and Sani, Lorenzo and Rodriques, Samuel G},
-  journal={arXiv preprint arXiv:2503.00096},
-  year={2025}
-}
-```
+| Size  | File                                                            |
+|-------|-----------------------------------------------------------------|
+| 203 M | `CapsuleFolder-37829656-f147-5fd2-8f10-40fa15cfdf03.zip`        |
+| 212 M | `CapsuleFolder-d38392ec-84b8-485d-ab02-b8788e6f1f43.zip`        |
+| 212 M | `CapsuleFolder-ebc7c8a6-ba34-46db-bf8c-b3e310434ba9.zip`        |
+| 219 M | `CapsuleFolder-17baa727-5eb7-4544-a466-3148a48b3cde.zip`        |
+| 219 M | `CapsuleFolder-4cb6f8ce-4d81-40b2-8d9c-85868796ee73.zip`        |
+| 219 M | `CapsuleFolder-975f3e91-53b0-44b1-ac9f-20023d9c8cd0.zip`        |
+| 219 M | `CapsuleFolder-c66d3ed9-0a95-46be-a237-ed68498ea7f6.zip`        |
+| 219 M | `CapsuleFolder-cd811ead-7887-4369-b175-05aff4223765.zip`        |
+| 234 M | `CapsuleFolder-5ddf0a38-bc41-5ebb-93af-88c62ca29be7.zip`        |
+| 459 M | `CapsuleFolder-bda54b38-9b49-4009-aad6-d5f52675438a.zip`        |
+
+To restore them, re-download the dataset from Hugging Face (`yuanhaoqu/BixBench-Verified-50`) and copy the listed zips into this directory.
+
+## Use in Our Paper
+
+We use BixBench-Verified-50 as one of the two task sets for the BenchGuard validation in our benchmark-audit paper. We run ABA on this subset and compare findings against BenchGuard's gold-issue set, using the same alignment judge and matched Claude Opus 4.6 setup as the BenchGuard single-model baseline.
+
 
 ## License
 
