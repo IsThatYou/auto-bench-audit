@@ -216,6 +216,8 @@ bench-audit audit-tasks \
 
 Each config names its auditor in `agent_cli` (`claude`, `cursor`, or `codex`) and `model`. Every command takes `--agent-cli` and `--model` to replace them for one run, so there is no need to edit a config. The model is passed through for Claude and Codex; Cursor currently ignores it. If you pass `--agent-cli` without `--model`, the config's model is dropped and the agent uses its own default.
 
+`bench-audit audit` writes its own config. For `claude` it uses `claude-opus-5-5` unless you pass `--model`; `codex` and `cursor` use their own default model. The 143 configs of the paper name `claude-opus-4-7`, the model of the paper's runs.
+
 ```bash
 # One-off audit
 bench-audit audit https://github.com/centerforaisafety/hle \

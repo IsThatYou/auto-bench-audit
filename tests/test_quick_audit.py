@@ -71,7 +71,7 @@ def test_audit_command_clones_writes_a_config_and_runs_three_phases(tmp_path: Pa
         "benchmark_name": "tiny_bench",
         "benchmark_type": "static",
         "agent_cli": "claude",
-        "model": "claude-opus-4-7",
+        "model": quick_audit.DEFAULT_MODELS["claude"],
         "output_subdir": "quick",
         "code_url": local_repo,
         "benchmark_data_dir": "data",
