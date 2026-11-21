@@ -77,6 +77,12 @@ class ProgressTracker:
             sys.stderr.write(f"\r\033[K  {item_id} — skipped (cached)\n")
             self._write_status_line()
 
+    def note(self, message: str) -> None:
+        """Print one line (for example a retry) without counting an item as finished."""
+        with self._lock:
+            sys.stderr.write(f"\r\033[K  {message}\n")
+            self._write_status_line()
+
     def start(self, item_id: str) -> None:
         with self._lock:
             self._active.add(item_id)

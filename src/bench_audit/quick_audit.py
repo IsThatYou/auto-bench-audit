@@ -17,7 +17,7 @@ import yaml
 from .agent_cli import require_agent_binary
 from .benchmark_audit import audit_benchmark
 from .config import load_benchmark_config
-from .evidence_collection import collect_evidence
+from .evidence_collection import DEFAULT_COLLECT_TIMEOUT, collect_evidence
 from .paths import env_dir, resolve_output_root
 from .task_audit import audit_tasks
 
@@ -90,6 +90,8 @@ def run_quick_audit(
     skip_benchmark_audit: bool = False,
     max_workers: int = 1,
     timeout: int = 800,
+    collect_timeout: int | None = DEFAULT_COLLECT_TIMEOUT,
+    retry_errors: int = 1,
     force: bool = False,
 ) -> dict[str, Any]:
     require_agent_binary(agent_cli)
@@ -109,14 +111,16 @@ def run_quick_audit(
     _log(f"wrote config {config_path}")
     config = load_benchmark_config(config_path)
 
+    failures: list[str] = []
     if skip_benchmark_audit:
         _log("skipping the benchmark-level audit")
     else:
         _log("phase 1/3: benchmark-level audit")
-        audit_benchmark(config, force=force, timeout=timeout)
+        if audit_benchmark(config, force=force, timeout=timeout, retry_errors=retry_errors).get("failed"):
+            failures.append("the benchmark-level audit")
 
     _log("phase 2/3: evidence collection")
-    collect_evidence(config, force=force)
+    collect_evidence(config, force=force, timeout=collect_timeout, retry_errors=retry_errors)
 
     _log(f"phase 3/3: task audit (static, {sample_n} sampled tasks)")
     result = audit_tasks(
@@ -128,14 +132,22 @@ def run_quick_audit(
         audit_mode="static",
         sample_n=sample_n,
         sample_seed=sample_seed,
+        retry_errors=retry_errors,
     )
+    failed_tasks = result.get("failed_tasks") or []
+    if failed_tasks:
+        failures.append(f"{len(failed_tasks)} task audit(s)")
 
     output_root = resolve_output_root(config)
-    _log("done.")
+    if failures:
+        _log(f"finished with failures: {' and '.join(failures)} failed.")
+        _log("Run the same command again to try only the failed parts again.")
+    else:
+        _log("done.")
     _log(f"output folder: {output_root}")
     _log(f"report:        {result.get('report_path', output_root / 'audit_report_static.md')}")
     _log(f"findings:      {result.get('task_audit_dir', output_root / 'task_audits_static')}")
-    return {"config_path": str(config_path), "output_root": str(output_root), **result}
+    return {"config_path": str(config_path), "output_root": str(output_root), **result, "failures": failures}
 
 
 def _log(message: str) -> None:

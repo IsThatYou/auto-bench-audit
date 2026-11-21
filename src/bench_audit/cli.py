@@ -5,12 +5,12 @@ import os
 import sys
 from pathlib import Path
 
-from .agent_cli import AGENT_BINARIES, AgentCliError
+from .agent_cli import AGENT_BINARIES, EXIT_AGENT_ERRORS, AgentCliError
 from .audit_protocol import PHASE_ORDER, load_general_rubric, normalize_phase, resolve_phase_sequence
 from .batch import add_batch_arguments, run_batch
 from .benchmark_audit import audit_benchmark
 from .config import BenchmarkConfig, load_benchmark_config
-from .evidence_collection import collect_evidence
+from .evidence_collection import DEFAULT_COLLECT_TIMEOUT, collect_evidence
 from .paths import checkout_root
 from .quick_audit import run_quick_audit
 from .task_audit import audit_tasks
@@ -34,7 +34,14 @@ and `batch` does them for many. You can also run one phase at a time:
 Every phase starts an agent command-line tool (claude, codex, or cursor) as a
 subprocess. The agent runs with its permission checks off. Each phase costs
 API money or subscription usage.
+
+A failed agent call is tried again (--retry-errors, default 1). If it fails
+again, the command still finishes, and its exit code is 3. Run the same command
+again: it skips what is finished and tries only the failed parts.
 """
+
+RETRY_HELP = "Extra attempts for an agent call that fails (default: 1). Each attempt costs money. 0 = no retry"
+COLLECT_TIMEOUT_HELP = f"Seconds for the evidence-collection agent call (default: {DEFAULT_COLLECT_TIMEOUT})"
 
 AGENT_CHOICES = sorted(AGENT_BINARIES)
 
@@ -73,7 +80,9 @@ def build_parser() -> argparse.ArgumentParser:
     quick.add_argument("--model", help="Model id passed to the agent (default for claude: claude-opus-4-7)")
     quick.add_argument("--skip-benchmark-audit", action="store_true", help="Skip phase 1, the benchmark-level audit")
     quick.add_argument("--max-workers", type=int, default=1, help="Tasks to audit in parallel (default: 1)")
-    quick.add_argument("--timeout", type=int, default=800, help="Seconds per agent call (default: 800)")
+    quick.add_argument("--timeout", type=int, default=800, help="Seconds per audit agent call (default: 800)")
+    quick.add_argument("--collect-timeout", type=int, default=DEFAULT_COLLECT_TIMEOUT, help=COLLECT_TIMEOUT_HELP)
+    quick.add_argument("--retry-errors", type=int, default=1, help=RETRY_HELP)
     quick.add_argument("--force", action="store_true", help="Run again even if results exist")
 
     bench = add("audit-benchmark", "Phase 1: review the benchmark as a whole.")
@@ -82,11 +91,14 @@ def build_parser() -> argparse.ArgumentParser:
     bench.add_argument("--rubric-text", help="Path to a .txt benchmark rubric file (overrides the default)")
     bench.add_argument("--force", action="store_true", help="Run again even if benchmark_audit.json exists")
     bench.add_argument("--timeout", type=int, default=800, help="Seconds for the agent call (default: 800)")
+    bench.add_argument("--retry-errors", type=int, default=1, help=RETRY_HELP)
 
     collect = add("collect-evidence", "Phase 2: list the tasks and write one task config per task.")
     _add_config_args(collect)
     collect.add_argument("--job-type", choices=["actual"], help="Kind of recorded runs to collect (default: from the config)")
-    collect.add_argument("--force", action="store_true", help="Run again even if results exist")
+    collect.add_argument("--force", action="store_true", help="Run again even if a finished collection exists")
+    collect.add_argument("--timeout", type=int, default=DEFAULT_COLLECT_TIMEOUT, help=f"Seconds for the agent call (default: {DEFAULT_COLLECT_TIMEOUT})")
+    collect.add_argument("--retry-errors", type=int, default=1, help=RETRY_HELP)
 
     tasks = add("audit-tasks", "Phase 3: review each task and write its findings.")
     _add_config_args(tasks)
@@ -115,6 +127,7 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--job-type", choices=["actual"], help="Kind of recorded runs to collect (default: from the config)")
     run.add_argument("--start-phase", type=normalize_phase, choices=PHASE_ORDER, default=PHASE_ORDER[0], help=f"First phase (default: {PHASE_ORDER[0]})")
     run.add_argument("--end-phase", type=normalize_phase, choices=PHASE_ORDER, default=PHASE_ORDER[-1], help=f"Last phase (default: {PHASE_ORDER[-1]})")
+    run.add_argument("--collect-timeout", type=int, default=DEFAULT_COLLECT_TIMEOUT, help=COLLECT_TIMEOUT_HELP)
     _add_task_audit_args(run)
 
     batch = add(
@@ -152,6 +165,7 @@ def _add_task_audit_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--sample-seed", type=int, default=42, help="Random seed for task sampling (default: 42)")
     parser.add_argument("--max-workers", type=int, default=1, help="Tasks to audit in parallel (default: 1)")
     parser.add_argument("--timeout", type=int, default=800, help="Seconds per agent call (default: 800)")
+    parser.add_argument("--retry-errors", type=int, default=1, help=RETRY_HELP)
 
 
 def load_env_files() -> None:
@@ -230,7 +244,7 @@ def _dispatch(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
         url = args.url or args.url_flag
         if not url:
             parser.error("audit needs a repository URL, for example: bench-audit audit https://github.com/centerforaisafety/hle")
-        run_quick_audit(
+        result = run_quick_audit(
             url,
             name=args.name,
             sample_n=args.sample_n,
@@ -241,9 +255,11 @@ def _dispatch(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
             skip_benchmark_audit=args.skip_benchmark_audit,
             max_workers=args.max_workers,
             timeout=args.timeout,
+            collect_timeout=args.collect_timeout,
+            retry_errors=args.retry_errors,
             force=args.force,
         )
-        return 0
+        return EXIT_AGENT_ERRORS if result.get("failures") else 0
 
     if args.command == "batch":
         return run_batch(args)
@@ -262,46 +278,51 @@ def _dispatch(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
         return 0
 
     if args.command == "audit-benchmark":
-        _audit_benchmark(load_config(args), args)
-        return 0
+        failed = _audit_benchmark(load_config(args), args)
+        return EXIT_AGENT_ERRORS if failed else 0
 
     if args.command == "collect-evidence":
-        collect_evidence(load_config(args), force=args.force)
+        collect_evidence(load_config(args), force=args.force, timeout=args.timeout, retry_errors=args.retry_errors)
         return 0
 
     if args.command == "audit-tasks":
         _validate_task_filters(args.tasks, args.all)
-        _audit_tasks(load_config(args), args)
-        return 0
+        failed = _audit_tasks(load_config(args), args)
+        return EXIT_AGENT_ERRORS if failed else 0
 
     if args.command == "run":
         _validate_task_filters(args.tasks, args.all)
         config = load_config(args)
         general_rubric = load_general_rubric(args.general_rubric)
         phases = resolve_phase_sequence(general_rubric, args.start_phase, args.end_phase)
+        failed = False
         if "benchmark_audit" in phases:
-            _audit_benchmark(config, args)
+            failed = _audit_benchmark(config, args)  # a failed benchmark audit does not stop the other phases
         if "evidence_collection" in phases:
-            collect_evidence(config, force=args.force)
+            collect_evidence(config, force=args.force, timeout=args.collect_timeout, retry_errors=args.retry_errors)
         if "task_audit" in phases:
-            _audit_tasks(config, args)
-        return 0
+            failed = _audit_tasks(config, args) or failed
+        return EXIT_AGENT_ERRORS if failed else 0
 
     raise SystemExit(f"unknown command: {args.command}")
 
 
-def _audit_benchmark(config: BenchmarkConfig, args: argparse.Namespace) -> None:
-    audit_benchmark(
+def _audit_benchmark(config: BenchmarkConfig, args: argparse.Namespace) -> bool:
+    """Run phase 1. Return True when it ended as an agent_error."""
+    result = audit_benchmark(
         config,
         general_rubric_path=args.general_rubric,
         rubric_text_path=args.rubric_text,
         force=args.force,
         timeout=args.timeout,
+        retry_errors=args.retry_errors,
     )
+    return bool(result.get("failed"))
 
 
-def _audit_tasks(config: BenchmarkConfig, args: argparse.Namespace) -> None:
-    audit_tasks(
+def _audit_tasks(config: BenchmarkConfig, args: argparse.Namespace) -> bool:
+    """Run phase 3. Return True when one or more task audits ended as an agent_error."""
+    result = audit_tasks(
         config,
         general_rubric_path=args.general_rubric,
         rubric_text_path=args.rubric_text,
@@ -314,7 +335,9 @@ def _audit_tasks(config: BenchmarkConfig, args: argparse.Namespace) -> None:
         audit_mode=args.mode,
         sample_n=args.sample_n,
         sample_seed=args.sample_seed,
+        retry_errors=args.retry_errors,
     )
+    return bool(result.get("failed_tasks"))
 
 
 def _validate_task_filters(task_ids: list[str] | None, include_all: bool) -> None:

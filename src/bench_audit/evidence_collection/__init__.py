@@ -6,9 +6,10 @@ from .models import (
     TaskEntry,
     normalize_manifest,
 )
-from .runner import collect_evidence
+from .runner import DEFAULT_COLLECT_TIMEOUT, collect_evidence, collection_is_done
 
 __all__ = [
+    "DEFAULT_COLLECT_TIMEOUT",
     "ArtifactManifest",
     "BenchmarkConfig",
     "EvalConfig",
@@ -16,6 +17,7 @@ __all__ = [
     "TaskConfig",
     "TaskEntry",
     "collect_evidence",
+    "collection_is_done",
     "load_benchmark_config",
     "load_collection_config",  # older name of load_benchmark_config
     "normalize_manifest",

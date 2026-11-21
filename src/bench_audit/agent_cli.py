@@ -17,6 +17,10 @@ class AgentCliError(RuntimeError):
     """Raised when the configured agent CLI is missing or fails."""
 
 
+# Exit code of a bench-audit command that finished, but with one or more failed agent calls.
+# Their records say agent_error, and the same command tries only those again.
+EXIT_AGENT_ERRORS = 3
+
 _DEBUG_COMMAND_LOCK = Lock()
 
 # agent_cli value -> the command that must be on PATH
@@ -192,10 +196,13 @@ def _run_command(
         proc.kill()
         stdout, stderr = proc.communicate()
         stdout = (stdout or "").strip()
-        if stdout:
-            print(f"[bench-audit] {agent_cli} timed out after {timeout}s but produced output; recovering", file=sys.stderr)
-        else:
+        if not stdout:
             raise AgentCliError(f"{agent_cli} timed out after {timeout}s") from None
+        if not _has_final_answer(agent_cli, stdout):
+            # Keep the partial log: it shows how far the agent got.
+            _write_conversation_log(conversation_log_path, stdout)
+            raise AgentCliError(f"{agent_cli} timed out after {timeout}s before it gave a final answer") from None
+        print(f"[bench-audit] {agent_cli} timed out after {timeout}s but had already answered; using that answer", file=sys.stderr)
     else:
         stdout = (stdout or "").strip()
         stderr = (stderr or "").strip()
@@ -204,10 +211,39 @@ def _run_command(
             raise AgentCliError(f"{agent_cli} failed while generating output: {detail}")
     if not stdout:
         raise AgentCliError(f"{agent_cli} returned empty output")
+    _write_conversation_log(conversation_log_path, stdout)
+    return stdout
+
+
+def _write_conversation_log(conversation_log_path: Path | None, stdout: str) -> None:
     if conversation_log_path is not None:
         conversation_log_path.parent.mkdir(parents=True, exist_ok=True)
         conversation_log_path.write_text(stdout)
-    return stdout
+
+
+def set_aside_failed_log(conversation_log_path: Path) -> Path | None:
+    """Move the log of a failed attempt to ``failed/`` next to it, so the next attempt does not overwrite it."""
+    if not conversation_log_path.is_file():
+        return None
+    failed_dir = conversation_log_path.parent / "failed"
+    failed_dir.mkdir(parents=True, exist_ok=True)
+    number = 1
+    while (target := failed_dir / f"{conversation_log_path.stem}.attempt{number}{conversation_log_path.suffix}").exists():
+        number += 1
+    conversation_log_path.replace(target)
+    return target
+
+
+def _has_final_answer(agent_cli: str, stdout: str) -> bool:
+    """Return True when a process that was stopped at the time limit had already answered.
+
+    The claude command prints one ``result`` event when it is finished. For
+    the other agents there is no such marker, so their output is passed on as
+    before and the caller decides whether it is usable.
+    """
+    if agent_cli != "claude":
+        return True
+    return any(item.get("type") == "result" for item in _iter_jsonl_objects(stdout))
 
 
 def _log_debug_request(

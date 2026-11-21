@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
-from ..agent_cli import build_agent_request, invoke_text
+import yaml
+
+from ..agent_cli import AgentCliError, build_agent_request, invoke_text, set_aside_failed_log
 from ..config import BenchmarkConfig
 from ..paths import build_agent_add_dirs, build_output_dir_name, resolve_output_root  # noqa: F401  (scripts import these from here)
 from .models import (
@@ -14,17 +17,43 @@ from .models import (
 )
 from .prompt import render_collect_prompt
 
+DEFAULT_COLLECT_TIMEOUT = 3600
+
+# What a failed collection raises: the agent call failed, or its files are missing or not valid.
+_COLLECTION_ERRORS = (AgentCliError, OSError, ValueError, KeyError, TypeError, yaml.YAMLError)
+
 
 def collect_evidence(
     config: BenchmarkConfig,
     force: bool = False,
+    timeout: int | None = DEFAULT_COLLECT_TIMEOUT,
+    retry_errors: int = 1,
 ) -> dict[str, Any]:
+    """List the benchmark's tasks and write one task config per task, with one agent call.
+
+    A finished collection is not run again unless ``force`` is set. A failed
+    collection is tried again, up to ``retry_errors`` more times in this run.
+    ``timeout`` is the time limit of one agent call in seconds (None = no limit).
+    """
     config.validate()
     output_root = resolve_output_root(config)
     layout = ensure_output_layout(output_root)
     collector_path = layout["collector"] / "collect_evidence.py"
     manifest_path = layout["root"] / "artifact_manifest.yaml"
     report_path = layout["root"] / "collection_report.md"
+    result = {
+        "collector_path": str(collector_path),
+        "manifest_path": str(manifest_path),
+        "task_config_dir": str(layout["task_configs"]),
+        "report_path": str(report_path),
+        "output_root": str(output_root),
+    }
+
+    if not force and collection_is_done(output_root):
+        print(f"Evidence collection already exists at {output_root}, skipping (use --force to re-run)")
+        return {**result, "skipped": True}
+    # The report is written last and marks a finished collection. Remove an old one before the files change.
+    report_path.unlink(missing_ok=True)
 
     prompt = render_collect_prompt(
         config,
@@ -39,39 +68,58 @@ def collect_evidence(
         add_dirs=build_agent_add_dirs(config, output_root, include_repo_dir=False),
         api_key_env=config.api_key_env,
     )
-    invoke_text(
-        request,
-        prompt,
-        conversation_log_path=layout["root"] / "evidence_collection_conversation.json",
-    )
-
-    manifest = normalize_manifest(ArtifactManifest.load_yaml(manifest_path))
-    manifest.save_yaml(manifest_path)
-
-    task_configs = _load_task_configs(layout["task_configs"], manifest)
-    _validate_eval_configs(layout["task_configs"], manifest)
+    conversation_log_path = layout["root"] / "evidence_collection_conversation.json"
+    attempts = 1 + max(0, retry_errors)
+    for attempt in range(1, attempts + 1):
+        try:
+            invoke_text(request, prompt, timeout=timeout, conversation_log_path=conversation_log_path)
+            manifest = normalize_manifest(ArtifactManifest.load_yaml(manifest_path))
+            manifest.save_yaml(manifest_path)
+            task_configs = _load_task_configs(layout["task_configs"], manifest)
+            _validate_eval_configs(layout["task_configs"], manifest)
+            break
+        except _COLLECTION_ERRORS as exc:
+            print(f"[bench-audit] evidence collection attempt {attempt} of {attempts} failed: {exc}", file=sys.stderr)
+            if attempt == attempts:
+                raise
+            set_aside_failed_log(conversation_log_path)
 
     _write_text(report_path, _collection_report(manifest, task_configs), force=True)
-    return {
-        "collector_path": str(collector_path),
-        "manifest_path": str(manifest_path),
-        "task_config_dir": str(layout["task_configs"]),
-        "report_path": str(report_path),
-        "output_root": str(output_root),
-    }
+    return {**result, "skipped": False}
+
+
+def collection_is_done(output_root: str | Path) -> bool:
+    """Return True when ``output_root`` holds a finished collection that the task audit can load."""
+    root = Path(output_root)
+    manifest_path = root / "artifact_manifest.yaml"
+    if not manifest_path.is_file() or not (root / "collection_report.md").is_file():
+        return False
+    try:
+        manifest = ArtifactManifest.load_yaml(manifest_path)
+        _load_task_configs(root / "task_configs", manifest)
+        _validate_eval_configs(root / "task_configs", manifest)
+    except _COLLECTION_ERRORS:
+        return False
+    return True
 
 
 def _load_task_configs(task_config_dir: Path, manifest: ArtifactManifest) -> dict[str, TaskConfig]:
     resolver = TaskConfigDirResolver(task_config_dir)
     configs: dict[str, TaskConfig] = {}
+    missing: list[str] = []
     for task in manifest.tasks:
-        task_dir = resolver.resolve(task.task_id)
-        path = task_dir / "task_config.json"
-        if not path.exists():
-            raise FileNotFoundError(
-                f"Agent did not generate TaskConfig for task {task.task_id}: expected {path}"
-            )
-        configs[task.task_id] = TaskConfig.load_json(path)
+        try:
+            task_dir = resolver.resolve(task.task_id)
+        except FileNotFoundError:
+            missing.append(task.task_id)
+            continue
+        configs[task.task_id] = TaskConfig.load_json(task_dir / "task_config.json")
+    if missing:
+        shown = ", ".join(missing[:10]) + (f" (+{len(missing) - 10} more)" if len(missing) > 10 else "")
+        raise FileNotFoundError(
+            f"the agent did not write a task config for {len(missing)} of {len(manifest.tasks)} tasks: {shown} "
+            f"(expected {task_config_dir}/<task_id>/task_config.json)"
+        )
     return configs
 
 

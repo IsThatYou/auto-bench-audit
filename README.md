@@ -87,9 +87,21 @@ Each task audit holds a list of findings. This one is from Terminal-Bench 2, tas
 
 The audits from the paper (168 benchmarks) are browsable at [autobenchaudit.com](https://autobenchaudit.com). The raw JSON is public at `https://data.autobenchaudit.com` (start from `index.json`).
 
+## When an agent call fails
+
+An agent call can fail: it reaches its time limit, the command crashes, or the answer is not valid JSON. `bench-audit` then does three things.
+
+1. It tries the call again. `--retry-errors N` sets the number of extra attempts (default 1, and each attempt costs money; `0` turns retries off).
+2. If the call still fails, the command finishes the rest of its work and writes a record with `"overall_judgment": "agent_error"`. It prints the failed tasks, and its exit code is `3`.
+3. A record that says `agent_error` is not finished. Run the same command again: it skips every finished record and tries only the failed ones. `--force` is not needed.
+
+Evidence collection has a time limit of 3600 seconds (`--timeout` on `collect-evidence`, `--collect-timeout` on `audit`, `run`, and `batch`). A finished collection is not collected again; pass `--force` to collect it again. The log of a failed attempt is kept in a `failed/` folder next to the conversation logs.
+
+In a batch, a benchmark with a failed agent call is marked `failed` in the tracker, and its clone is kept. The next `bench-audit batch` tries only the failed parts again.
+
 ## Batch of Benchmarks Audit Pipeline
 
-For batch runs across many benchmarks, use `bench-audit batch`. It runs five stages per benchmark: `audit-benchmark` → `collect-evidence` → `sample-tasks` → `audit-tasks` → cleanup. A second run continues where the first one stopped.
+For batch runs across many benchmarks, use `bench-audit batch`. It runs five stages per benchmark: `audit-benchmark` → `collect-evidence` → `sample-tasks` → `audit-tasks` → cleanup. A second run continues where the first one stopped, and tries failed agent calls again.
 
 ```bash
 # Run all benchmarks under configs/multi_domain_all/

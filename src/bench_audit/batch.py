@@ -10,6 +10,10 @@ For each YAML config under configs/multi_domain_all/<domain>/<benchmark>.yaml:
 Each of stages 1, 2, and 4 runs as its own `bench-audit` process, so one
 failed benchmark does not stop the batch.
 
+A failed agent call leaves a record that says agent_error. Such a record is
+not finished: the benchmark is marked failed, its clone is kept, and the next
+`bench-audit batch` tries only the failed parts again.
+
 Progress is tracked in $AUDIT_RUN_DIR/streaming_pipeline_tracking.json.
 Use --status to print the current progress table without doing any work.
 """
@@ -30,7 +34,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from .agent_cli import EXIT_AGENT_ERRORS
+from .audit_models import record_is_done
 from .config import load_benchmark_config
+from .evidence_collection import DEFAULT_COLLECT_TIMEOUT, collection_is_done
 from .paths import checkout_root, env_dir, resolve_output_root
 from .task_audit.sampling import write_task_sample
 
@@ -207,13 +214,11 @@ def dir_size_mb(path: Path) -> int:
 
 def stage_done_outputs(stage: str, output_root: Path) -> bool:
     if stage == "stage_benchmark_audit":
-        return (output_root / "benchmark_audit.json").exists() and (
+        return record_is_done(output_root / "benchmark_audit.json") and (
             output_root / "benchmark_audit_report.md"
         ).exists()
     if stage == "stage_collect_evidence":
-        return (output_root / "artifact_manifest.yaml").exists() and (
-            output_root / "collection_report.md"
-        ).exists()
+        return collection_is_done(output_root)
     if stage == "stage_sample_tasks":
         return (output_root / "sampled_tasks.json").exists()
     if stage == "stage_audit_tasks":
@@ -222,6 +227,7 @@ def stage_done_outputs(stage: str, output_root: Path) -> bool:
 
 
 def pending_task_ids(output_root: Path, batch: int) -> list[str]:
+    """Sampled tasks with no finished record. A record that says agent_error is not finished."""
     sample_file = output_root / "sampled_tasks.json"
     if not sample_file.exists():
         return []
@@ -230,7 +236,7 @@ def pending_task_ids(output_root: Path, batch: int) -> list[str]:
     pending = [
         tid
         for tid in sampled.get("task_ids", [])
-        if not (audit_dir / f"{tid}.json").exists()
+        if not record_is_done(audit_dir / f"{tid}.json")
     ]
     if batch > 0:
         pending = pending[:batch]
@@ -238,8 +244,8 @@ def pending_task_ids(output_root: Path, batch: int) -> list[str]:
 
 
 def agent_flags(args: argparse.Namespace) -> list[str]:
-    """--agent-cli / --model, passed on to every bench-audit phase."""
-    flags: list[str] = []
+    """--retry-errors / --agent-cli / --model, passed on to every bench-audit phase."""
+    flags: list[str] = ["--retry-errors", str(args.retry_errors)]
     if args.agent_cli:
         flags += ["--agent-cli", args.agent_cli]
     if args.model:
@@ -286,6 +292,8 @@ def run_pipeline_for_config(
         started_at=now_iso(),
         error=None,
     )
+    # Stages that finished with failed agent calls. The benchmark is then not done.
+    problems: list[str] = []
 
     # Stage 1: benchmark audit
     stage = "stage_benchmark_audit"
@@ -309,6 +317,11 @@ def run_pipeline_for_config(
         if rc == 0:
             log(f"{label} STAGE benchmark_audit  DONE ({fmt_duration(elapsed)})")
             update_entry(config, **{stage: "done"})
+        elif rc == EXIT_AGENT_ERRORS:
+            # The task audits do not need the benchmark-level audit, so the other stages still run.
+            log(f"{label} STAGE benchmark_audit  AGENT ERROR ({fmt_duration(elapsed)}), continuing")
+            update_entry(config, **{stage: "agent_error"})
+            problems.append("the benchmark audit failed")
         else:
             log(f"{label} STAGE benchmark_audit  FAILED rc={rc}")
             update_entry(config, **{stage: "failed"}, overall="failed",
@@ -324,7 +337,12 @@ def run_pipeline_for_config(
     else:
         log(f"{label} STAGE collect_evidence RUNNING")
         update_entry(config, **{stage: "running"})
-        cmd = phase_command("collect-evidence", "--config", config, *agent_flags(args))
+        cmd = phase_command(
+            "collect-evidence",
+            "--config", config,
+            "--timeout", str(args.collect_timeout),
+            *agent_flags(args),
+        )
         if args.force:
             cmd.append("--force")
         t0 = time.monotonic()
@@ -384,7 +402,16 @@ def run_pipeline_for_config(
         t0 = time.monotonic()
         rc = run_subprocess(cmd, audit_run_dir)
         elapsed = time.monotonic() - t0
-        if rc == 0:
+        still_pending = set(pending_task_ids(output_root, 0))
+        failed_now = [tid for tid in pending if tid in still_pending]
+        if rc in (0, EXIT_AGENT_ERRORS) and failed_now:
+            log(
+                f"{label} STAGE audit_tasks      "
+                f"AGENT ERROR ({len(failed_now)} of {len(pending)} failed, {fmt_duration(elapsed)})"
+            )
+            update_entry(config, **{stage: "agent_error"})
+            problems.append(f"{len(failed_now)} of {len(pending)} task audits failed")
+        elif rc == 0:
             remaining = pending_task_ids(output_root, 0)
             status = "done" if not remaining else "partial"
             log(
@@ -399,6 +426,13 @@ def run_pipeline_for_config(
                          error=f"audit_tasks exit={rc}",
                          finished_at=now_iso())
             return False
+
+    if problems:
+        # Keep the clone and the data: the next run needs them to try the failed parts again.
+        error = "; ".join(problems)
+        log(f"{label} NOT FINISHED           {error} (clone kept; run the batch again to retry)")
+        update_entry(config, overall="failed", error=error, finished_at=now_iso())
+        return False
 
     # Cleanup
     if args.keep:
@@ -482,7 +516,7 @@ def cmd_status() -> None:
         print("FAILED:")
         for e in failed:
             failed_stage = next(
-                (s for s in STAGES if e.get(s) == "failed"), "?"
+                (s for s in STAGES if e.get(s) in ("failed", "agent_error")), "?"
             )
             print(f"  {e['benchmark_name']:<36} {failed_stage}  {e.get('error', '')}")
         print()
@@ -503,6 +537,10 @@ def add_batch_arguments(parser: argparse.ArgumentParser) -> None:
                         help="Seconds for the audit-benchmark agent call (default 1200)")
     parser.add_argument("--task-timeout", type=int, default=1000,
                         help="Seconds per audit-tasks agent call (default 1000)")
+    parser.add_argument("--collect-timeout", type=int, default=DEFAULT_COLLECT_TIMEOUT,
+                        help=f"Seconds for the collect-evidence agent call (default {DEFAULT_COLLECT_TIMEOUT})")
+    parser.add_argument("--retry-errors", type=int, default=1,
+                        help="Extra attempts for an agent call that fails (default 1). Each attempt costs money. 0 = no retry")
     parser.add_argument("--rubric-text", default=None,
                         help="Path to a .txt task rubric (default: the task rubric named in rubrics/general_rubric.yaml)")
     parser.add_argument("--config-dir", default=None,
@@ -590,5 +628,12 @@ def run_batch(args: argparse.Namespace) -> int:
 
     print()
     print(f"=== Finished: {passed} passed, {failed} failed (of {total}) ===")
+    if failed:
+        wanted = set(configs)
+        print("FAILED:")
+        for entry in read_tracker().get("configs", []):
+            if entry["config"] in wanted and entry.get("overall") == "failed":
+                print(f"  {entry['benchmark_name']:<36} {entry.get('error') or ''}")
+        print("Run the same command again to try only the failed parts again.")
     print("Run `bench-audit batch --status` for the tracker view.")
     return 0 if failed == 0 else 1
