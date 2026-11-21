@@ -364,6 +364,23 @@ class BenchmarkAuditRecord:
         target.write_text(json.dumps(self.to_dict(), indent=2, sort_keys=True) + "\n")
 
 
+AGENT_ERROR = "agent_error"
+
+
+def record_is_done(path: str | Path) -> bool:
+    """Return True when the record at ``path`` holds a finished audit.
+
+    A record that is missing, unreadable, or an ``agent_error`` is not done:
+    the agent call failed before it gave a valid answer, so the next run must
+    try again.
+    """
+    try:
+        data = json.loads(Path(path).read_text())
+    except (OSError, ValueError):
+        return False
+    return isinstance(data, dict) and data.get("overall_judgment") != AGENT_ERROR
+
+
 def _finding_json_schema() -> dict[str, Any]:
     """JSON schema for a single BenchmarkAuditFinding."""
     return {

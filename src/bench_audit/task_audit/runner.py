@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
-from ..agent_cli import AgentCliError, build_agent_request, invoke_structured
-from ..audit_models import TaskAuditRecord, parse_agent_json_object, task_audit_record_json_schema
+from ..agent_cli import AgentCliError, build_agent_request, invoke_structured, set_aside_failed_log
+from ..audit_models import AGENT_ERROR, TaskAuditRecord, parse_agent_json_object, record_is_done, task_audit_record_json_schema
 from ..audit_protocol import (
     build_agent_add_dirs,
     load_collection_state,
@@ -48,8 +49,16 @@ def audit_tasks(
     audit_mode: str | None = None,
     sample_n: int | None = None,
     sample_seed: int = 42,
+    retry_errors: int = 1,
 ) -> dict[str, Any]:
+    """Audit the selected tasks, one agent call per task.
+
+    A task whose record is an ``agent_error`` is not finished: the agent call
+    failed before it gave a valid answer. Such a task is tried again, up to
+    ``retry_errors`` more times in this run, and again on the next run.
+    """
     mode = _resolve_audit_mode(audit_mode, config)
+    attempts = 1 + max(0, retry_errors)
     output_root = resolve_output_root(config)
     general_rubric = load_general_rubric(general_rubric_path)
     phase = general_rubric.phase("task_audit")
@@ -100,59 +109,83 @@ def audit_tasks(
             "output": str(output_dir),
             "workers": str(max_workers),
             "timeout": f"{timeout}s",
+            "retry_errors": str(attempts - 1),
             "force": str(force),
         },
     )
 
-    # Separate cached (skipped) tasks from tasks that need work.
+    # Separate finished (skipped) tasks from tasks that need work.
+    # A record that is an agent_error is not finished, so its task runs again.
     to_run: list[tuple[Any, Path]] = []  # (task_config, target_path)
     written_paths: list[str] = []
     skipped_tasks: list[str] = []
+    failed_tasks: list[str] = []
     for task_config in selected_tasks:
         target_path = output_dir / f"{task_config.task_id}.json"
-        if target_path.exists() and not force:
+        if not force and record_is_done(target_path):
             skipped_tasks.append(task_config.task_id)
             progress.skip(task_config.task_id)
         else:
             to_run.append((task_config, target_path))
 
-    def _process(task_config: Any, target_path: Path) -> tuple[str, Path, TaskAuditRecord]:
-        progress.start(task_config.task_id)
-        conversation_log_path = conversation_dir / f"{_sanitize_task_id(task_config.task_id)}.json"
+    def _audit_once(task_config: Any, conversation_log_path: Path) -> TaskAuditRecord:
         if mode == "static":
-            record = _run_single_static_task(
+            return _run_single_static_task(
                 request, task_config, rubric_text, str(rubric_txt_path), config,
                 timeout=timeout, agent_cli=request.agent_cli,
                 conversation_log_path=conversation_log_path,
             )
-        else:
-            eval_configs = collection.eval_configs.get(task_config.task_id, [])
-            selected_raw = select_eval_configs(task_config, eval_configs, eval_strategy=eval_strategy)
-            selected_paths = [eval_artifact_paths(ec) for ec in selected_raw]
-            selected_ids = [ec.eval_id for ec in selected_raw]
-            record = _run_single_task(
-                request,
-                task_config,
-                selected_paths,
-                selected_ids,
-                rubric_text,
-                str(rubric_txt_path),
-                timeout=timeout,
-                agent_cli=request.agent_cli,
-                conversation_log_path=conversation_log_path,
-            )
-        return task_config.task_id, target_path, record
+        eval_configs = collection.eval_configs.get(task_config.task_id, [])
+        selected_raw = select_eval_configs(task_config, eval_configs, eval_strategy=eval_strategy)
+        selected_paths = [eval_artifact_paths(ec) for ec in selected_raw]
+        selected_ids = [ec.eval_id for ec in selected_raw]
+        return _run_single_task(
+            request,
+            task_config,
+            selected_paths,
+            selected_ids,
+            rubric_text,
+            str(rubric_txt_path),
+            timeout=timeout,
+            agent_cli=request.agent_cli,
+            conversation_log_path=conversation_log_path,
+        )
+
+    def _process(task_config: Any, target_path: Path) -> tuple[str, Path, TaskAuditRecord]:
+        task_id = task_config.task_id
+        progress.start(task_id)
+        conversation_log_path = conversation_dir / f"{_sanitize_task_id(task_id)}.json"
+        if target_path.exists() and not record_is_done(target_path):
+            set_aside_failed_log(conversation_log_path)  # the log of the failed attempt from an earlier run
+        record = _audit_once(task_config, conversation_log_path)
+        for attempt in range(2, attempts + 1):
+            if record.overall_judgment != AGENT_ERROR:
+                break
+            progress.note(f"{task_id} — failed, starting attempt {attempt} of {attempts}: {_one_line(record.summary)}")
+            set_aside_failed_log(conversation_log_path)
+            record = _audit_once(task_config, conversation_log_path)
+        return task_id, target_path, record
 
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         futures = {pool.submit(_process, tc, tp): tc.task_id for tc, tp in to_run}
         for future in as_completed(futures):
             task_id, target_path, record = future.result()
-            is_error = record.overall_judgment == "agent_error"
+            is_error = record.overall_judgment == AGENT_ERROR
             record.save_json(target_path)
             written_paths.append(str(target_path))
+            if is_error:
+                failed_tasks.append(task_id)
             progress.done(task_id, error=is_error)
 
     progress.finish()
+    failed_tasks.sort()
+    if failed_tasks:
+        shown = ", ".join(failed_tasks[:10]) + (f" (+{len(failed_tasks) - 10} more)" if len(failed_tasks) > 10 else "")
+        print(
+            f"[bench-audit] {len(failed_tasks)} of {len(to_run)} task audits failed after {attempts} attempt(s): {shown}\n"
+            f"[bench-audit] Their records say agent_error. Run the same command again to try only these tasks again.",
+            file=sys.stderr,
+        )
 
     report_name = "audit_report.md" if mode == "trajectory" else "audit_report_static.md"
     report_path = Path(output_root) / report_name
@@ -173,6 +206,7 @@ def audit_tasks(
         "selected_tasks": [task.task_id for task in selected_tasks],
         "written_task_audits": written_paths,
         "skipped_tasks": skipped_tasks,
+        "failed_tasks": failed_tasks,
     }
 
 
@@ -212,7 +246,7 @@ def _run_single_task(
             selected_eval_ids=list(selected_eval_ids),
             rubric_path=rubric_path,
             audit_trajectory_path=str(conversation_log_path) if conversation_log_path else None,
-            overall_judgment="agent_error",
+            overall_judgment=AGENT_ERROR,
             summary=f"Task audit failed before a valid record was produced: {exc}",
             confidence="low",
             findings=[],
@@ -255,11 +289,16 @@ def _run_single_static_task(
             selected_eval_ids=[],
             rubric_path=rubric_path,
             audit_trajectory_path=str(conversation_log_path) if conversation_log_path else None,
-            overall_judgment="agent_error",
+            overall_judgment=AGENT_ERROR,
             summary=f"Static task audit failed before a valid record was produced: {exc}",
             confidence="low",
             findings=[],
         )
+
+
+def _one_line(text: str, limit: int = 200) -> str:
+    flat = " ".join(str(text).split())
+    return flat if len(flat) <= limit else flat[: limit - 1] + "…"
 
 
 def _sanitize_task_id(task_id: str) -> str:

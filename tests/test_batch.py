@@ -9,11 +9,12 @@ from pathlib import Path
 import pytest
 
 from bench_audit import batch, cli
+from bench_audit.agent_cli import EXIT_AGENT_ERRORS
 from bench_audit.config import load_benchmark_config
 from bench_audit.paths import resolve_output_root
 from bench_audit.task_audit.sampling import sample_sorted, write_task_sample
 
-from .conftest import write_config
+from .conftest import write_collection, write_config
 
 TASK_IDS = [f"task-{i:02d}" for i in range(10)]
 
@@ -37,6 +38,8 @@ class FakePhases:
     def __init__(self) -> None:
         self.commands: list[list[str]] = []
         self.fail_on: str | None = None
+        self.benchmark_agent_error = False  # the benchmark audit ends as an agent_error
+        self.task_agent_errors: set[str] = set()  # these task audits end as an agent_error
 
     def __call__(self, cmd: list[str], audit_run_dir: str) -> int:
         phase = cmd[3]
@@ -47,19 +50,20 @@ class FakePhases:
         root = resolve_output_root(config)
         root.mkdir(parents=True, exist_ok=True)
         if phase == "audit-benchmark":
-            (root / "benchmark_audit.json").write_text("{}")
+            judgment = "agent_error" if self.benchmark_agent_error else "audit_complete"
+            (root / "benchmark_audit.json").write_text(json.dumps({"overall_judgment": judgment}))
             (root / "benchmark_audit_report.md").write_text("report")
-        elif phase == "collect-evidence":
-            (root / "artifact_manifest.yaml").write_text("tasks: []")
-            (root / "collection_report.md").write_text("report")
-            for task_id in TASK_IDS:
-                (root / "task_configs" / task_id).mkdir(parents=True)
-                (root / "task_configs" / task_id / "task_config.json").write_text("{}")
+            return EXIT_AGENT_ERRORS if self.benchmark_agent_error else 0
+        if phase == "collect-evidence":
+            write_collection(config, TASK_IDS)
         elif phase == "audit-tasks":
             tasks = cmd[cmd.index("--tasks") + 1 : cmd.index("--mode")]
             (root / "task_audits_static").mkdir(exist_ok=True)
+            failed = [task_id for task_id in tasks if task_id in self.task_agent_errors]
             for task_id in tasks:
-                (root / "task_audits_static" / f"{task_id}.json").write_text("{}")
+                judgment = "agent_error" if task_id in failed else "audit_complete"
+                (root / "task_audits_static" / f"{task_id}.json").write_text(json.dumps({"overall_judgment": judgment}))
+            return EXIT_AGENT_ERRORS if failed else 0
         return 0
 
 
@@ -90,7 +94,9 @@ def test_batch_runs_every_stage_and_cleans_up(tmp_path: Path, bench: Path, phase
 
     assert [command[0] for command in phases.commands] == ["audit-benchmark", "collect-evidence", "audit-tasks"]
     for command in phases.commands:
-        assert command[-4:] == ["--agent-cli", "codex", "--model", "gpt-5"]
+        assert command[-6:] == ["--retry-errors", "1", "--agent-cli", "codex", "--model", "gpt-5"]
+    collect = phases.commands[1]
+    assert collect[collect.index("--timeout") + 1] == "3600"
     audit_tasks = phases.commands[-1]
     assert audit_tasks[audit_tasks.index("--timeout") + 1] == "1000"
     assert "--rubric-text" not in audit_tasks
@@ -157,3 +163,57 @@ def test_shipped_config_folder_is_found():
     configs = batch.discover_configs(None, [], batch.default_config_dir())
     assert len(configs) > 100
     assert len(batch.discover_configs("medical_health", [], batch.default_config_dir())) == 12
+
+
+def test_failed_task_audits_are_shown_and_tried_again(tmp_path: Path, bench: Path, phases: FakePhases, capsys):
+    argv = ["batch", "--config", str(bench), "--max-tasks", "4"]
+    root = tmp_path / "runs" / "static" / "demo__v1__actual"
+
+    phases.task_agent_errors = {"task-01", "task-04"}  # seed 42 samples task-00, 01, 04, 08
+    assert cli.main(argv) == 1
+    entry = tracker(tmp_path)["configs"][0]
+    assert entry["overall"] == "failed" and entry["stage_audit_tasks"] == "agent_error"
+    assert entry["error"] == "2 of 4 task audits failed"
+    assert (bench.parent / "repo").exists()  # the clone is kept for the next attempt
+    out = capsys.readouterr().out
+    assert "2 of 4 task audits failed" in out and "Run the same command again" in out
+
+    cli.main(["batch", "--status"])
+    assert "stage_audit_tasks  2 of 4 task audits failed" in capsys.readouterr().out
+
+    phases.task_agent_errors = set()
+    phases.commands.clear()
+    assert cli.main(argv) == 0
+    (retry,) = phases.commands  # only the task audit runs, and only for the two failed tasks
+    assert retry[retry.index("--tasks") + 1 : retry.index("--mode")] == ["task-01", "task-04"]
+    entry = tracker(tmp_path)["configs"][0]
+    assert entry["overall"] == "done" and entry["error"] is None and entry["cleanup"] == "done"
+    assert json.loads((root / "task_audits_static" / "task-01.json").read_text())["overall_judgment"] == "audit_complete"
+
+
+def test_failed_benchmark_audit_does_not_stop_the_other_stages(tmp_path: Path, bench: Path, phases: FakePhases):
+    argv = ["batch", "--config", str(bench), "--max-tasks", "2"]
+    phases.benchmark_agent_error = True
+    assert cli.main(argv) == 1
+    assert [command[0] for command in phases.commands] == ["audit-benchmark", "collect-evidence", "audit-tasks"]
+    entry = tracker(tmp_path)["configs"][0]
+    assert entry["overall"] == "failed" and entry["error"] == "the benchmark audit failed"
+    assert entry["stage_benchmark_audit"] == "agent_error" and entry["stage_audit_tasks"] == "done"
+    assert (bench.parent / "repo").exists()
+
+    phases.benchmark_agent_error = False
+    phases.commands.clear()
+    assert cli.main(argv) == 0
+    assert [command[0] for command in phases.commands] == ["audit-benchmark"]
+    assert tracker(tmp_path)["configs"][0]["overall"] == "done"
+
+
+def test_broken_collection_is_collected_again(tmp_path: Path, bench: Path, phases: FakePhases):
+    argv = ["batch", "--config", str(bench), "--max-tasks", "2", "--keep"]
+    assert cli.main(argv) == 0
+    root = tmp_path / "runs" / "static" / "demo__v1__actual"
+    (root / "task_configs" / "task-03" / "task_config.json").unlink()
+
+    phases.commands.clear()
+    assert cli.main(argv) == 0
+    assert [command[0] for command in phases.commands] == ["collect-evidence"]
