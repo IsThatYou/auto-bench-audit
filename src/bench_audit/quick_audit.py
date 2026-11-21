@@ -1,12 +1,14 @@
-"""Audit one benchmark from its repository URL (`bench-audit audit <url>`).
+"""Audit one benchmark from its repository URL or a local folder (`bench-audit audit <target>`).
 
-Steps: clone the repo, write a small config next to it, then run the three
-phases in static mode: benchmark audit, evidence collection, task audit.
+Steps: clone the repo (or copy the folder), write a small config next to it,
+then run the three phases in static mode: benchmark audit, evidence
+collection, task audit.
 """
 
 from __future__ import annotations
 
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -22,6 +24,9 @@ from .paths import env_dir, resolve_output_root
 from .task_audit import audit_tasks
 
 DEFAULT_MODELS = {"claude": "claude-opus-4-7"}
+
+# Folders that are not part of a benchmark and can be very large. A copy leaves them out.
+COPY_SKIP = {".venv", "venv", "node_modules", "__pycache__", ".mypy_cache", ".pytest_cache", ".ruff_cache", ".tox", ".bench-audit"}
 
 
 def derive_name(url: str) -> str:
@@ -43,6 +48,36 @@ def clone_repo(url: str, repo_dir: Path) -> bool:
     result = subprocess.run(["git", "clone", url, str(repo_dir)], check=False)
     if result.returncode != 0:
         raise SystemExit(f"git clone failed for {url} (exit code {result.returncode})")
+    return True
+
+
+def local_folder(target: str) -> Path | None:
+    """Return the folder that ``target`` names, or None when it is a URL."""
+    path = Path(target).expanduser()
+    return path.resolve() if path.is_dir() else None
+
+
+def copy_folder(source: Path, repo_dir: Path, *, force: bool = False) -> bool:
+    """Copy the benchmark folder ``source`` to ``repo_dir``. Return False when a copy is already there.
+
+    The audit works on the copy, so the agents do not change the user's folder,
+    and files that are not committed are part of the audit. bench-audit's own
+    data folders are left out, because they can be inside ``source``.
+    """
+    source, repo_dir = source.resolve(), repo_dir.resolve()
+    if repo_dir == source or repo_dir in source.parents:
+        raise ValueError(f"{source} is inside bench-audit's own copy ({repo_dir}); give the original benchmark folder")
+    if repo_dir.is_dir() and any(repo_dir.iterdir()):
+        if not force:
+            return False
+        shutil.rmtree(repo_dir)
+    own_folders = {env_dir("AUDIT_RUN_DIR"), env_dir("BENCHMARK_REPOS_DIR")}
+
+    def skip(folder: str, names: list[str]) -> set[str]:
+        return {name for name in names if name in COPY_SKIP or (Path(folder) / name).resolve() in own_folders}
+
+    repo_dir.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(source, repo_dir, symlinks=True, ignore=skip)
     return True
 
 
@@ -95,17 +130,25 @@ def run_quick_audit(
     force: bool = False,
 ) -> dict[str, Any]:
     require_agent_binary(agent_cli)
+    source = local_folder(url)
+    if source is not None:
+        url = str(source)
     name = name or derive_name(url)
     model = model or DEFAULT_MODELS.get(agent_cli)
 
     bench_dir = env_dir("BENCHMARK_REPOS_DIR") / name
     repo_dir = bench_dir / "repo"
-    (bench_dir / "data").mkdir(parents=True, exist_ok=True)
 
-    if clone_repo(url, repo_dir):
+    if source is not None:
+        if copy_folder(source, repo_dir, force=force):
+            _log(f"copied {source} -> {repo_dir} (the audit works on this copy)")
+        else:
+            _log(f"copy already present at {repo_dir} (pass --force to copy the folder again)")
+    elif clone_repo(url, repo_dir):
         _log(f"cloned {url} -> {repo_dir}")
     else:
         _log(f"repo already present at {repo_dir} (skipping clone)")
+    (bench_dir / "data").mkdir(parents=True, exist_ok=True)
 
     config_path = write_quick_config(bench_dir, name=name, url=url, agent_cli=agent_cli, model=model, domain=domain)
     _log(f"wrote config {config_path}")

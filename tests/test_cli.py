@@ -9,7 +9,7 @@ from bench_audit.audit_protocol import PHASE_ORDER, load_general_rubric, resolve
 
 from .conftest import write_config
 
-COMMANDS = ["audit", "audit-benchmark", "collect-evidence", "audit-tasks", "generate", "run", "batch"]
+COMMANDS = ["audit", "audit-benchmark", "collect-evidence", "audit-tasks", "generate", "run", "batch", "skill"]
 
 
 @pytest.fixture
@@ -151,3 +151,17 @@ def test_rubrics_are_found():
     assert resolve_phase_sequence(rubric, PHASE_ORDER[0], PHASE_ORDER[-1]) == PHASE_ORDER
     for phase in ("benchmark_audit", "task_audit"):
         assert resolve_repo_path(rubric.phase(phase).rubric).is_file()
+
+
+def test_skill_command_prints_the_skill(capsys):
+    assert cli.main(["skill"]) == 0
+    out = capsys.readouterr().out
+    assert out.startswith("---\nname: bench-audit\ndescription: ")
+    assert "bench-audit audit . --sample-n 5" in out and "--dangerously-skip-permissions" in out
+
+
+def test_skill_command_installs_the_skill(tmp_path, capsys):
+    assert cli.main(["skill", "--install", str(tmp_path / "skills")]) == 0
+    installed = tmp_path / "skills" / "bench-audit" / "SKILL.md"
+    assert installed.read_text().startswith("---\nname: bench-audit\n")
+    assert str(installed) in capsys.readouterr().out

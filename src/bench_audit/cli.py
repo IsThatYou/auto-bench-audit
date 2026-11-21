@@ -11,7 +11,7 @@ from .batch import add_batch_arguments, run_batch
 from .benchmark_audit import audit_benchmark
 from .config import BenchmarkConfig, load_benchmark_config
 from .evidence_collection import DEFAULT_COLLECT_TIMEOUT, collect_evidence
-from .paths import checkout_root
+from .paths import checkout_root, skill_path
 from .quick_audit import run_quick_audit
 from .task_audit import audit_tasks
 from .trajectory_generation import generate_trajectories
@@ -23,6 +23,10 @@ wrong graders.
 Quick start (clones the repo, then audits 5 sampled tasks):
 
   bench-audit audit https://github.com/centerforaisafety/hle
+  bench-audit audit path/to/my-benchmark
+
+From inside Claude Code or Codex, `bench-audit skill` prints instructions that
+let the agent run the audit for you and explain the findings.
 
 An audit has three phases. `audit` and `run` do all of them for one benchmark,
 and `batch` does them for many. You can also run one phase at a time:
@@ -64,13 +68,17 @@ def build_parser() -> argparse.ArgumentParser:
 
     quick = add(
         "audit",
-        "Audit one benchmark from its repository URL (all three phases).",
-        "Clone a benchmark repository and audit it in static mode.\n\n"
-        "The clone goes to $BENCHMARK_REPOS_DIR/<name>/repo (default ./data/benchmark_repos).\n"
-        "The results go to $AUDIT_RUN_DIR/static/<name>__quick__actual (default ./data/audit_runs).\n\n"
-        "Example:\n  bench-audit audit https://github.com/centerforaisafety/hle --sample-n 3",
+        "Audit one benchmark from its repository URL or a local folder (all three phases).",
+        "Clone a benchmark repository, or copy a local benchmark folder, and audit it in static mode.\n\n"
+        "The clone or copy goes to $BENCHMARK_REPOS_DIR/<name>/repo (default ./data/benchmark_repos).\n"
+        "The results go to $AUDIT_RUN_DIR/static/<name>__quick__actual (default ./data/audit_runs).\n"
+        "A local folder is copied, so the audit sees files that are not committed and the agents\n"
+        "do not change your folder. --force copies it again.\n\n"
+        "Examples:\n"
+        "  bench-audit audit https://github.com/centerforaisafety/hle --sample-n 3\n"
+        "  bench-audit audit . --sample-n 3",
     )
-    quick.add_argument("url", nargs="?", help="Benchmark repository URL (anything `git clone` accepts)")
+    quick.add_argument("url", nargs="?", metavar="target", help="Benchmark repository URL (anything `git clone` accepts) or a local folder")
     quick.add_argument("--url", dest="url_flag", help=argparse.SUPPRESS)
     quick.add_argument("--name", help="Benchmark name (default: derived from the URL)")
     quick.add_argument("--sample-n", type=int, default=5, help="How many tasks to audit (default: 5)")
@@ -141,6 +149,17 @@ def build_parser() -> argparse.ArgumentParser:
         "  bench-audit batch --status",
     )
     add_batch_arguments(batch)
+
+    skill = add(
+        "skill",
+        "Print the instructions that let Claude Code or Codex run an audit for you.",
+        "Print the bench-audit agent skill (a SKILL.md file), or install it.\n\n"
+        "One paste into Claude Code or Codex:\n"
+        "  Run `bench-audit skill` and follow what it prints to audit the benchmark in this folder.\n\n"
+        "Install it for every session of Claude Code:\n"
+        "  bench-audit skill --install ~/.claude/skills",
+    )
+    skill.add_argument("--install", metavar="SKILLS_DIR", help="Copy the skill to SKILLS_DIR/bench-audit/SKILL.md, for example ~/.claude/skills")
 
     return parser
 
@@ -243,7 +262,7 @@ def _dispatch(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     if args.command == "audit":
         url = args.url or args.url_flag
         if not url:
-            parser.error("audit needs a repository URL, for example: bench-audit audit https://github.com/centerforaisafety/hle")
+            parser.error("audit needs a repository URL or a local folder, for example: bench-audit audit https://github.com/centerforaisafety/hle")
         result = run_quick_audit(
             url,
             name=args.name,
@@ -263,6 +282,17 @@ def _dispatch(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
 
     if args.command == "batch":
         return run_batch(args)
+
+    if args.command == "skill":
+        text = skill_path().read_text()
+        if args.install:
+            target = Path(args.install).expanduser() / "bench-audit" / "SKILL.md"
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(text)
+            print(f"Installed the bench-audit skill at {target}")
+        else:
+            sys.stdout.write(text)
+        return 0
 
     if args.command == "generate":
         generate_trajectories(

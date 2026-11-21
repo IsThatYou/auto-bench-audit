@@ -15,7 +15,7 @@ from bench_audit import cli
 
 from .conftest import REPO_ROOT
 
-DOCS = ["README.md", "configs/README.md"]
+DOCS = ["README.md", "configs/README.md", "skills/bench-audit/SKILL.md"]
 PATH_FLAGS = ("--config", "--harbor-config", "--general-rubric", "--rubric-text")
 SCRIPTS = {"scripts/audit_one.sh": "audit", "scripts/batch_static_audit_pipeline.sh": "batch"}
 
@@ -36,6 +36,8 @@ def bench_audit_argv(command: str) -> list[str] | None:
     words = shlex.split(command, comments=True)
     if words[:2] == ["uv", "run"]:
         words = words[2:]
+    if words[:2] == ["uvx", "--from"]:
+        words = words[3:]
     if words and words[0] == "bench-audit":
         return words[1:]
     if words[:1] == ["bash"]:
@@ -68,5 +70,6 @@ def test_doc_command_is_valid(doc: str, command: str):
         value = getattr(args, flag.lstrip("-").replace("-", "_"), None)
         for path in value if isinstance(value, list) else [value]:
             # collection_<name>.yaml is written by `bench-audit generate`, so it is not in the repo.
-            if path and "collection_" not in Path(path).name:
+            # A path with <name> is a placeholder for a file that the reader's own run writes.
+            if path and "collection_" not in Path(path).name and "<" not in path:
                 assert (REPO_ROOT / path).is_file(), f"{doc} points to {path}, which does not exist"

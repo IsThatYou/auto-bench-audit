@@ -36,16 +36,35 @@ Optional: `cp .env.example .env` to set API keys and data folders. `bench-audit`
 > [!WARNING]
 > The auditor agent runs with its permission checks turned off (`claude --dangerously-skip-permissions`, `codex exec --yolo`) and with shell access, on a benchmark repository that you cloned from the internet. Run audits on a machine or in a container where that is acceptable, and audit only repositories you trust. Each phase also spends API credits or subscription usage.
 
+## Use it from Claude Code or Codex
+
+Paste this into Claude Code or Codex, in the folder of the benchmark you want to audit:
+
+```text
+Run `uvx --from git+https://github.com/IsThatYou/auto-bench-audit bench-audit skill` and follow what it prints to audit the benchmark in this folder.
+```
+
+The command prints a skill: instructions that tell the agent how to run the audit, what to ask you first (the audit starts agents with their permission checks off, and it costs money), and how to check and explain the findings. You need `uv` and the agent CLI, and nothing else. The first run downloads this repository (about 300 MB). To audit a public benchmark instead, end the sentence with its repository URL.
+
+To keep the skill in Claude Code for every session:
+
+```bash
+uvx --from git+https://github.com/IsThatYou/auto-bench-audit bench-audit skill --install ~/.claude/skills
+```
+
+The skill itself is [`skills/bench-audit/SKILL.md`](skills/bench-audit/SKILL.md).
+
 ## Audit any benchmark in one command
 
-Give `bench-audit audit` the GitHub URL of any public benchmark:
+Give `bench-audit audit` the GitHub URL of any public benchmark, or a local folder:
 
 ```bash
 uv run bench-audit audit https://github.com/centerforaisafety/hle --sample-n 3
 uv run bench-audit audit https://github.com/harbor-framework/terminal-bench-2 --sample-n 3
+uv run bench-audit audit path/to/my-benchmark --sample-n 3
 ```
 
-This clones the repo to `data/benchmark_repos/<name>/repo`, writes a minimal config to `data/benchmark_repos/<name>/config.yaml`, and runs the three audit phases end-to-end in static mode (`audit-benchmark` → `collect-evidence` → `audit-tasks --mode static --sample-n N`).
+This clones the repo (or copies the folder, so files that are not committed are audited too and the agents do not change your folder) to `data/benchmark_repos/<name>/repo`, writes a minimal config to `data/benchmark_repos/<name>/config.yaml`, and runs the three audit phases end-to-end in static mode (`audit-benchmark` → `collect-evidence` → `audit-tasks --mode static --sample-n N`).
 
 The command works for static-QA benchmarks (HLE, GPQA, MMLU-style) and agentic ones (SWE-bench, OSWorld, τ-bench) alike — the collector agent figures out each repo's structure on its own. For full control over phases, configs, trajectory-mode audits, and batch runs, see the rest of this README.
 
@@ -220,6 +239,7 @@ bench-audit batch \
 auto-bench-audit/
 ├── src/bench_audit/   # Audit CLI implementation (`bench-audit`)
 ├── rubrics/           # general_rubric.yaml + benchmark/task rubric .txt files
+├── skills/            # bench-audit/SKILL.md: instructions for Claude Code or Codex (`bench-audit skill`)
 ├── configs/           # Per-benchmark YAML configs: multi_domain_all/ (paper inventory),
 │                      #   harbor/ (trajectory generation)
 ├── scripts/           # Old entry points, kept as thin wrappers: audit_one.sh
