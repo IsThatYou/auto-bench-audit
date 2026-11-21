@@ -35,4 +35,4 @@ jobs:
           uv pip install --python /tmp/wheel-env/bin/python dist/*.whl
           cd /tmp
           /tmp/wheel-env/bin/bench-audit --help
-          /tmp/wheel-env/bin/python -c "from bench_audit.audit_protocol import load_general_rubric, resolve_repo_path as r; g = load_general_rubric(); assert r(g.phase('per_task_evaluation').rubric).is_file()"
+          /tmp/wheel-env/bin/python -c "from bench_audit.audit_protocol import load_general_rubric, resolve_repo_path as r; g = load_general_rubric(); assert r(g.phase('task_audit').rubric).is_file()"

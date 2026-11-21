@@ -95,6 +95,7 @@ class GeneralRubric:
                     raise ValueError(f"phase {phase_name} requires unknown phase {requirement}")
 
     def phase(self, phase_name: str) -> PhaseDefinition:
+        phase_name = normalize_phase(phase_name)
         if phase_name not in self.phases:
             raise ValueError(f"unknown phase: {phase_name}")
         return self.phases[phase_name]

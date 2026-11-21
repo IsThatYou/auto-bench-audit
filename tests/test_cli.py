@@ -68,6 +68,8 @@ def test_older_phase_name_in_a_rubric_file(tmp_path: Path):
         "  per_task_evaluation: {enabled: true, output_dir: task_audits}\n"
     )
     assert load_general_rubric(rubric).phase("task_audit").output_dir == "task_audits"
+    assert load_general_rubric(rubric).phase("per_task_evaluation").output_dir == "task_audits"
+    assert load_general_rubric().phase("per_task_evaluation").output_dir == "task_audits"
 
 
 def test_older_config_names_still_import():
