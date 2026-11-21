@@ -1,10 +1,18 @@
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
+
+from ..paths import expand_env
+
+# "static" is a benchmark that is audited from its task definitions only.
+# "neurips" is the older name for the same thing. Old configs still use it,
+# and it is part of their output path, so both names stay valid.
+STATIC_TYPES = {"static", "neurips"}
+BENCHMARK_TYPES = {"tb2", "swe_bench"} | STATIC_TYPES
+REQUIRED_FIELDS = ("benchmark_name", "benchmark_type", "agent_cli", "output_subdir", "benchmark_data_dir")
 
 
 @dataclass(slots=True)
@@ -32,8 +40,8 @@ class EvidenceCollectionConfig:
     def validate(self) -> None:
         if not self.benchmark_name:
             raise ValueError("benchmark_name is required")
-        if self.benchmark_type not in {"tb2", "swe_bench", "neurips"}:
-            raise ValueError("benchmark_type must be one of: tb2, swe_bench, neurips")
+        if self.benchmark_type not in BENCHMARK_TYPES:
+            raise ValueError("benchmark_type must be one of: static, tb2, swe_bench (neurips is an older name for static)")
         if not self.agent_cli:
             raise ValueError("agent_cli is required")
         if not self.output_subdir.strip():
@@ -56,10 +64,14 @@ class EvidenceCollectionConfig:
         return self.jobs_type
 
     @property
+    def is_static(self) -> bool:
+        return self.benchmark_type in STATIC_TYPES
+
+    @property
     def source_data_dir(self) -> str:
         if self.benchmark_type == "tb2":
             return str(self.jobs_dir)
-        if self.benchmark_type == "neurips":
+        if self.is_static:
             return str(self.benchmark_data_dir)
         return str(self.results_dir)
 
@@ -69,22 +81,25 @@ def load_collection_config(path: str | Path) -> EvidenceCollectionConfig:
     data = yaml.safe_load(config_path.read_text()) or {}
     if not isinstance(data, dict):
         raise ValueError(f"{config_path} must contain a top-level mapping")
+    missing = [name for name in REQUIRED_FIELDS if data.get(name) in (None, "")]
+    if missing:
+        raise ValueError(f"{config_path} is missing required field(s): {', '.join(missing)}")
 
     config = EvidenceCollectionConfig(
         benchmark_name=str(data["benchmark_name"]),
         benchmark_type=str(data["benchmark_type"]),
         agent_cli=str(data["agent_cli"]),
         output_subdir=str(data["output_subdir"]),
-        benchmark_data_dir=_resolve_path(config_path.parent, data["benchmark_data_dir"]),
+        benchmark_data_dir=_resolve_path(config_path, data["benchmark_data_dir"]),
         jobs_type=str(data.get("jobs_type", "actual")),
         model=str(data["model"]) if data.get("model") is not None else None,
-        jobs_dir=_resolve_optional_path(config_path.parent, data.get("jobs_dir")),
-        results_dir=_resolve_optional_path(config_path.parent, data.get("results_dir")),
-        runs_dir=_resolve_optional_path(config_path.parent, data.get("runs_dir")),
+        jobs_dir=_resolve_optional_path(config_path, data.get("jobs_dir")),
+        results_dir=_resolve_optional_path(config_path, data.get("results_dir")),
+        runs_dir=_resolve_optional_path(config_path, data.get("runs_dir")),
         api_key_env=str(data["api_key_env"]) if data.get("api_key_env") else None,
         fetch_test_sources=bool(data.get("fetch_test_sources", False)),
-        benchmark_repo_dir=_resolve_optional_path(config_path.parent, data.get("benchmark_repo_dir")),
-        paper_path=_resolve_optional_path(config_path.parent, data.get("paper_path")),
+        benchmark_repo_dir=_resolve_optional_path(config_path, data.get("benchmark_repo_dir")),
+        paper_path=_resolve_optional_path(config_path, data.get("paper_path")),
         domain_categories=data.get("domain_categories"),
         dataset_id=str(data["dataset_id"]) if data.get("dataset_id") else None,
         code_url=str(data["code_url"]) if data.get("code_url") else None,
@@ -94,20 +109,18 @@ def load_collection_config(path: str | Path) -> EvidenceCollectionConfig:
     return config
 
 
-def _resolve_optional_path(base: Path, value: object) -> str | None:
+def _resolve_optional_path(config_path: Path, value: object) -> str | None:
     if value is None:
         return None
     text = str(value).strip()
     if not text:
         return None
-    return _resolve_path(base, text)
+    return _resolve_path(config_path, text)
 
 
-def _resolve_path(base: Path, value: object) -> str:
-    expanded = os.path.expandvars(str(value))
-    candidate = Path(expanded).expanduser()
+def _resolve_path(config_path: Path, value: object) -> str:
+    """Expand environment variables, then resolve a relative path against the config's folder."""
+    candidate = Path(expand_env(str(value), source=config_path)).expanduser()
     if not candidate.is_absolute():
-        candidate = (base / candidate).resolve()
-    else:
-        candidate = candidate.resolve()
-    return str(candidate)
+        candidate = config_path.parent / candidate
+    return str(candidate.resolve())

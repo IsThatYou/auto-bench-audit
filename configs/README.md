@@ -7,8 +7,11 @@ This directory contains benchmark collection and audit configs. The batch static
 | Directory | YAML configs | Purpose |
 | --- | ---: | --- |
 | `multi_domain_all/` | 143 | Main batch-audit inventory, organized by paper-facing benchmark domain. This is what `scripts/batch_static_audit_pipeline.sh` discovers by default. |
-| `harbor/` | 1 | Harbor trajectory-generation configs, used with `bench-audit generate` before auditing generated run collections. |
-| `quick/` | 3 | Ad hoc configs written by `scripts/audit_one.sh` for one-off static audits. |
+| `harbor/` | 1 | Harbor trajectory-generation configs, used with `bench-audit generate` before auditing generated run collections. `generate` also writes `collection_<name>.yaml` here (ignored by git). |
+
+One-off audits (`bench-audit audit <url>`) do not write here. Their config goes next to the clone, at `data/benchmark_repos/<name>/config.yaml`.
+
+135 of the 143 configs say `benchmark_type: neurips`. That is the older name for `static` (a benchmark audited from its task definitions). Both names work. The old name stays in these files because it is part of the output path of the paper's runs.
 
 ## `multi_domain_all` domains
 
@@ -44,4 +47,10 @@ Run specific configs:
 bash scripts/batch_static_audit_pipeline.sh \
   --config configs/multi_domain_all/science_expert_reasoning/gpqa_diamond.yaml \
   --config configs/multi_domain_all/code_swe/frontier_swe.yaml
+```
+
+Use another agent or model for the whole batch, without editing configs:
+
+```bash
+bash scripts/batch_static_audit_pipeline.sh --domain code_swe --agent-cli codex --model gpt-5
 ```

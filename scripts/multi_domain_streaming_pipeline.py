@@ -207,6 +207,16 @@ def pending_task_ids(output_root: Path, batch: int) -> list[str]:
     return pending
 
 
+def agent_flags(args: argparse.Namespace) -> list[str]:
+    """--agent-cli / --model, passed on to every bench-audit phase."""
+    flags: list[str] = []
+    if args.agent_cli:
+        flags += ["--agent-cli", args.agent_cli]
+    if args.model:
+        flags += ["--model", args.model]
+    return flags
+
+
 def run_subprocess(cmd: list[str], audit_run_dir: str) -> int:
     env = os.environ.copy()
     env["PYTHONPATH"] = "src"
@@ -257,6 +267,7 @@ def run_pipeline_for_config(
             PYTHON, "-m", "bench_audit", "audit-benchmark",
             "--config", config,
             "--timeout", str(args.timeout),
+            *agent_flags(args),
         ]
         if args.force:
             cmd.append("--force")
@@ -281,7 +292,7 @@ def run_pipeline_for_config(
     else:
         log(f"{label} STAGE collect_evidence RUNNING")
         update_entry(config, **{stage: "running"})
-        cmd = [PYTHON, "-m", "bench_audit", "collect-evidence", "--config", config]
+        cmd = [PYTHON, "-m", "bench_audit", "collect-evidence", "--config", config, *agent_flags(args)]
         if args.force:
             cmd.append("--force")
         t0 = time.monotonic()
@@ -343,6 +354,7 @@ def run_pipeline_for_config(
             "--rubric-text", RUBRIC,
             "--timeout", "1000",
             "--max-workers", str(args.workers),
+            *agent_flags(args),
         ]
         t0 = time.monotonic()
         rc = run_subprocess(cmd, audit_run_dir)
@@ -469,6 +481,10 @@ def main() -> int:
                         help="Only run configs under configs/multi_domain_all/<domain>/")
     parser.add_argument("--config", action="append", default=[],
                         help="Specific config file(s); may be repeated")
+    parser.add_argument("--agent-cli", choices=["claude", "codex", "cursor"], default=None,
+                        help="Use this agent command instead of each config's agent_cli")
+    parser.add_argument("--model", default=None,
+                        help="Use this model instead of each config's model")
     parser.add_argument("--keep", action="store_true",
                         help="Skip cleanup of benchmark_repo_dir/benchmark_data_dir")
     parser.add_argument("--force", action="store_true",

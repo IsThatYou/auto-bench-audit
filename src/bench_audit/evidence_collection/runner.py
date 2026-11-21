@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 from typing import Any
 
 from ..agent_cli import build_agent_request, invoke_text
+from ..paths import build_agent_add_dirs, build_output_dir_name, resolve_output_root  # noqa: F401  (scripts import these from here)
 from .config import EvidenceCollectionConfig
 from .models import (
     ArtifactManifest,
@@ -36,7 +36,7 @@ def collect_evidence(
     request = build_agent_request(
         config.agent_cli,
         config.model,
-        add_dirs=build_agent_add_dirs(config, output_root),
+        add_dirs=build_agent_add_dirs(config, output_root, include_repo_dir=False),
         api_key_env=config.api_key_env,
     )
     invoke_text(
@@ -87,48 +87,6 @@ def _validate_eval_configs(task_config_dir: Path, manifest: ArtifactManifest) ->
                 )
 
 
-def resolve_output_root(config: EvidenceCollectionConfig) -> Path:
-    audit_run_dir = os.environ.get("AUDIT_RUN_DIR", "").strip()
-    if not audit_run_dir:
-        raise ValueError("AUDIT_RUN_DIR must be set")
-    return (
-        Path(audit_run_dir).resolve()
-        / _sanitize_dir_part(config.benchmark_type)
-        / build_output_dir_name(config)
-    ).resolve()
-
-
-def build_output_dir_name(config: EvidenceCollectionConfig) -> str:
-    return "__".join(
-        [
-            _sanitize_dir_part(config.benchmark_name),
-            _sanitize_dir_part(config.output_subdir),
-            _sanitize_dir_part(config.job_type),
-        ]
-    )
-
-
-def build_agent_add_dirs(config: EvidenceCollectionConfig, output_root: Path) -> list[str]:
-    candidates = [
-        str(output_root),
-    ]
-    if config.benchmark_data_dir:
-        candidates.append(str(Path(config.benchmark_data_dir).resolve()))
-    if config.source_data_dir:
-        candidates.append(str(Path(config.source_data_dir).resolve()))
-    if config.runs_dir:
-        candidates.append(str(Path(config.runs_dir).resolve()))
-
-    add_dirs: list[str] = []
-    for candidate in candidates:
-        if not candidate:
-            continue
-        resolved = str(Path(candidate).resolve())
-        if resolved not in add_dirs:
-            add_dirs.append(resolved)
-    return add_dirs
-
-
 def ensure_output_layout(output_root: str | Path) -> dict[str, Path]:
     root = Path(output_root).resolve()
     layout = {
@@ -139,13 +97,6 @@ def ensure_output_layout(output_root: str | Path) -> dict[str, Path]:
     for path in layout.values():
         path.mkdir(parents=True, exist_ok=True)
     return layout
-
-
-def _sanitize_dir_part(value: str) -> str:
-    sanitized = value.strip().replace(os.sep, "-").replace(" ", "-")
-    while "--" in sanitized:
-        sanitized = sanitized.replace("--", "-")
-    return sanitized or "run"
 
 
 class TaskConfigDirResolver:

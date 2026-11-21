@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -9,9 +8,27 @@ import yaml
 
 from .evidence_collection import ArtifactManifest, EvalConfig, EvidenceCollectionConfig, TaskConfig, TaskEntry
 from .evidence_collection.runner import TaskConfigDirResolver
+from .paths import build_agent_add_dirs, resolve_output_root, resource_root
 
 PHASE_ORDER = ["benchmark_audit", "evidence_collection", "per_task_evaluation"]
 TASK_FILTERS = {"failed_or_mixed", "all"}
+
+__all__ = [
+    "PHASE_ORDER",
+    "CollectionState",
+    "GeneralRubric",
+    "PhaseDefinition",
+    "benchmark_audit_path",
+    "build_agent_add_dirs",
+    "default_general_rubric_path",
+    "load_collection_state",
+    "load_general_rubric",
+    "load_yaml_mapping",
+    "resolve_output_root",
+    "resolve_phase_sequence",
+    "resolve_repo_path",
+    "task_audit_dir",
+]
 
 
 @dataclass(slots=True)
@@ -87,69 +104,17 @@ class CollectionState:
     eval_configs: dict[str, list[EvalConfig]]
 
 
-def repo_root() -> Path:
-    return Path(__file__).resolve().parents[2]
-
-
-def resolve_output_root(config: EvidenceCollectionConfig) -> Path:
-    audit_run_dir = os.environ.get("AUDIT_RUN_DIR", "").strip()
-    if not audit_run_dir:
-        raise ValueError("AUDIT_RUN_DIR must be set")
-    return (
-        Path(audit_run_dir).resolve()
-        / _sanitize_dir_part(config.benchmark_type)
-        / _build_output_dir_name(config)
-    ).resolve()
-
-
-def build_agent_add_dirs(config: EvidenceCollectionConfig, output_root: Path) -> list[str]:
-    candidates = [str(output_root)]
-    if config.benchmark_data_dir:
-        candidates.append(str(Path(config.benchmark_data_dir).resolve()))
-    if config.source_data_dir:
-        candidates.append(str(Path(config.source_data_dir).resolve()))
-    if config.runs_dir:
-        candidates.append(str(Path(config.runs_dir).resolve()))
-    if config.benchmark_repo_dir:
-        candidates.append(str(Path(config.benchmark_repo_dir).resolve()))
-    add_dirs: list[str] = []
-    for candidate in candidates:
-        if not candidate:
-            continue
-        resolved = str(Path(candidate).resolve())
-        if resolved not in add_dirs:
-            add_dirs.append(resolved)
-    return add_dirs
-
-
 def resolve_repo_path(path: str | None) -> Path:
     if not path:
         raise ValueError("rubric path is not configured")
     candidate = Path(path)
     if not candidate.is_absolute():
-        candidate = repo_root() / candidate
+        candidate = resource_root() / candidate
     return candidate.resolve()
 
 
-def _build_output_dir_name(config: EvidenceCollectionConfig) -> str:
-    return "__".join(
-        [
-            _sanitize_dir_part(config.benchmark_name),
-            _sanitize_dir_part(config.output_subdir),
-            _sanitize_dir_part(config.job_type),
-        ]
-    )
-
-
-def _sanitize_dir_part(value: str) -> str:
-    sanitized = value.strip().replace(os.sep, "-").replace(" ", "-")
-    while "--" in sanitized:
-        sanitized = sanitized.replace("--", "-")
-    return sanitized or "run"
-
-
 def default_general_rubric_path() -> Path:
-    return repo_root() / "rubrics" / "general_rubric.yaml"
+    return resource_root() / "rubrics" / "general_rubric.yaml"
 
 
 def load_general_rubric(path: str | Path | None = None) -> GeneralRubric:
@@ -232,5 +197,3 @@ def _optional_str(value: Any) -> str | None:
         return None
     text = str(value).strip()
     return text or None
-
-

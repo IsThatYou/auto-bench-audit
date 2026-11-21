@@ -14,7 +14,7 @@ def render_collect_prompt(
 ) -> str:
     models_path = Path(__file__).with_name("models.py").resolve()
 
-    if config.benchmark_type == "neurips":
+    if config.is_static:
         return _render_neurips_collect_prompt(
             config, output_root, collector_path, manifest_path, task_config_dir, models_path,
         )

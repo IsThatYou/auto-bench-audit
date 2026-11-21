@@ -29,7 +29,7 @@ def _resolve_audit_mode(audit_mode: str | None, config: EvidenceCollectionConfig
         if audit_mode not in AUDIT_MODES:
             raise ValueError(f"unsupported audit mode: {audit_mode}")
         return audit_mode
-    if config.benchmark_type == "neurips":
+    if config.is_static:
         return "static"
     return "trajectory"
 
@@ -61,8 +61,9 @@ def audit_tasks(
     rubric_text = rubric_txt_path.read_text()
     collection = load_collection_state(output_root)
 
-    # In static mode, default to auditing all tasks (no pass/fail to filter on).
-    task_filter = phase.task_filter or ("all" if mode == "static" else "failed_or_mixed")
+    # A static audit has no pass/fail results, so there is nothing to filter on.
+    # The rubric's task_filter (failed_or_mixed) applies to trajectory audits only.
+    task_filter = "all" if mode == "static" else (phase.task_filter or "failed_or_mixed")
     selected_tasks = select_task_configs(
         list(collection.task_configs.values()),
         task_filter=task_filter,

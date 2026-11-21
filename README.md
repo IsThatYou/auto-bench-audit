@@ -17,36 +17,79 @@
 
 ## Setup
 
-Requires Python 3.12+. Uses [uv](https://docs.astral.sh/uv/) for dependency management.
+Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/).
 
 ```bash
-uv venv --python 3.12
 uv sync
-cp .env.example .env   # then fill in API keys and data paths
 ```
 
-All scripts in this repo source `${REPO_ROOT}/.env` automatically; see `.env.example` for the full list of supported variables.
+ABA does not call a model API itself. It starts an agent command-line tool as a subprocess, so one of these must be installed and signed in:
+
+| `agent_cli` | Command | Sign-in |
+| --- | --- | --- |
+| `claude` (default) | [`claude`](https://docs.claude.com/en/docs/claude-code/overview) | `ANTHROPIC_API_KEY`, or the CLI's own login |
+| `codex` | `codex` | the CLI's own login |
+| `cursor` | `cursor-agent` | the CLI's own login |
+
+Optional: `cp .env.example .env` to set API keys and data folders. `bench-audit` reads `.env` from the current folder and from the repo root. Without it, clones go to `./data/benchmark_repos` and results go to `./data/audit_runs`.
+
+> [!WARNING]
+> The auditor agent runs with its permission checks turned off (`claude --dangerously-skip-permissions`, `codex exec --yolo`) and with shell access, on a benchmark repository that you cloned from the internet. Run audits on a machine or in a container where that is acceptable, and audit only repositories you trust. Each phase also spends API credits or subscription usage.
 
 ## Audit any benchmark in one command
 
-Point `scripts/audit_one.sh` at any public benchmark's GitHub URL:
+Give `bench-audit audit` the GitHub URL of any public benchmark:
 
 ```bash
-scripts/audit_one.sh --url https://github.com/centerforaisafety/hle --sample-n 3
-scripts/audit_one.sh --url https://github.com/harbor-framework/terminal-bench-2 --sample-n 3
+uv run bench-audit audit https://github.com/centerforaisafety/hle --sample-n 3
+uv run bench-audit audit https://github.com/harbor-framework/terminal-bench-2 --sample-n 3
 ```
 
-This clones the repo, writes a minimal config to `configs/quick/<name>.yaml`, and runs the three audit phases end-to-end in static mode (`audit-benchmark` → `collect-evidence` → `audit-tasks --mode static --sample-n N`).
+This clones the repo to `data/benchmark_repos/<name>/repo`, writes a minimal config to `data/benchmark_repos/<name>/config.yaml`, and runs the three audit phases end-to-end in static mode (`audit-benchmark` → `collect-evidence` → `audit-tasks --mode static --sample-n N`).
 
-The wrapper works for static-QA benchmarks (HLE, GPQA, MMLU-style) and agentic ones (SWE-bench, OSWorld, τ-bench) alike — the collector agent figures out each repo's structure on its own. For full control over phases, configs, trajectory-mode audits, and batch runs, see the rest of this README.
+The command works for static-QA benchmarks (HLE, GPQA, MMLU-style) and agentic ones (SWE-bench, OSWorld, τ-bench) alike — the collector agent figures out each repo's structure on its own. For full control over phases, configs, trajectory-mode audits, and batch runs, see the rest of this README.
 
 ```bash
-scripts/audit_one.sh --help        # all flags
+uv run bench-audit audit --help    # all flags
+uv run bench-audit --help          # all commands
 ```
+
+(`scripts/audit_one.sh --url <url>` still works. It calls `bench-audit audit`.)
+
+## What you get
+
+Results land in `data/audit_runs/<benchmark_type>/<name>__<output_subdir>__actual/`:
+
+```
+benchmark_audit.json          # phase 1: one verdict per rubric category
+benchmark_audit_report.md
+artifact_manifest.yaml        # phase 2: the list of tasks
+task_configs/<task>/task_config.json
+task_audits_static/<task>.json  # phase 3: findings for each task
+audit_report_static.md        # summary table over all audited tasks
+```
+
+Each task audit holds a list of findings. This one is from Terminal-Bench 2, task `configure-git-webserver` (file paths shortened):
+
+```json
+{
+  "category": "ambiguity",
+  "subtype": "hidden-identifier",
+  "severity": 2,
+  "claim": "The test hardcodes the SSH username `git`, but the prompt's example shows `user@server`, giving no indication the username must be `git`.",
+  "evidence": [
+    {"path": "instruction.md:2", "note": "`git clone user@server:/git/server` — username appears as `user`."},
+    {"path": "tests/verify.sh:21", "note": "Test clones with username `git`: `spawn git clone git@localhost:/git/server server-test`."}
+  ],
+  "suggested_fix": "State explicitly in the instruction that the server user must be named `git` ..."
+}
+```
+
+The audits from the paper (168 benchmarks) are browsable at [autobenchaudit.com](https://autobenchaudit.com). The raw JSON is public at `https://data.autobenchaudit.com` (start from `index.json`).
 
 ## Batch of Benchmarks Audit Pipeline
 
-For batch runs across many benchmarks, trajectory-mode audits, or custom configs, use the underlying `bench-audit` CLI directly. End-to-end, the streaming pipeline runs five stages per benchmark: `audit-benchmark` → `collect-evidence` → `sample-tasks` → `audit-tasks` → cleanup.
+For batch runs across many benchmarks, use the streaming pipeline. It runs five stages per benchmark: `audit-benchmark` → `collect-evidence` → `sample-tasks` → `audit-tasks` → cleanup.
 
 ```bash
 # Run all benchmarks under configs/multi_domain_all/
@@ -63,11 +106,27 @@ bash scripts/batch_static_audit_pipeline.sh \
 bash scripts/batch_static_audit_pipeline.sh --status
 ```
 
-Configure run output via the `AUDIT_RUN_DIR` env var (or `MULTI_DOMAIN_AUDIT_RUN_DIR`). The pipeline writes its tracker to `configs/multi_domain_all/streaming_pipeline_tracking.json`.
+The batch output folder is `data/multi_domain_all`; set `MULTI_DOMAIN_AUDIT_RUN_DIR` to change it. The pipeline writes its tracker to `configs/multi_domain_all/streaming_pipeline_tracking.json`.
 
 ## Step-by-Step Audit Pipeline
 
-To run an audit phase by phase instead of using a one-command wrapper, use the CLI commands below in order: `audit-benchmark` → `collect-evidence` → `audit-tasks`.
+To run an audit phase by phase, use the CLI commands below in order: `audit-benchmark` → `collect-evidence` → `audit-tasks`. `bench-audit run --config <config>` runs all three in a row (`--start-phase` / `--end-phase` pick a part).
+
+Each command takes a config. A minimal one:
+
+```yaml
+benchmark_name: clinbench
+benchmark_type: static          # static | tb2 | swe_bench  (older configs say "neurips" for static)
+agent_cli: claude               # claude | codex | cursor
+model: claude-opus-4-7
+output_subdir: v1
+
+code_url: https://github.com/ismaelvillanuevamiranda/ClinBench
+benchmark_data_dir: ${BENCHMARK_REPOS_DIR}/clinbench/data
+benchmark_repo_dir: ${BENCHMARK_REPOS_DIR}/clinbench/repo
+```
+
+`configs/multi_domain_all/` has the 143 configs used in the paper. Relative paths are resolved against the config's folder. `${BENCHMARK_REPOS_DIR}` defaults to `./data/benchmark_repos`; any other unset variable is an error.
 
 ### Step 1 — Benchmark-level audit
 
@@ -93,79 +152,81 @@ The auditor agent is initialized per task with the task configuration and file p
 
 Run the auditor in one of two modes:
 
-**Static audit** — the auditor reads only the task definition: the instruction the agent would receive, the tests its solution would be graded against, the evaluation configuration, etc. No execution is observed.
+**Static audit** — the auditor reads only the task definition: the instruction the agent would receive, the tests its solution would be graded against, the evaluation configuration, etc. No execution is observed. A static audit covers every collected task; use `--sample-n N` or `--tasks <id> ...` to audit fewer.
 
 ```bash
 bench-audit audit-tasks \
     --config configs/multi_domain_all/medical_health/clinbench.yaml \
-    --mode static --all
+    --mode static --sample-n 20
 ```
 
-**Trajectory audit** — the auditor additionally reads recorded agent traces (`trajectory_path`) and test outputs (`test_output_path`), allowing it to catch runtime issues that static inspection cannot.
+**Trajectory audit** — the auditor additionally reads recorded agent traces (`trajectory_path`) and test outputs (`test_output_path`), allowing it to catch runtime issues that static inspection cannot. By default it audits tasks with at least one failed run; `--all` audits every task.
 
-If you do not already have recorded trajectories, `auto-bench-audit` can generate them by wrapping [Harbor](https://github.com/harbor-framework/harbor). The example below runs Claude Code Sonnet on Terminal-Bench 2 and writes a ready-to-audit collection config to `configs/harbor/collection_<name>.yaml`:
+If you do not already have recorded trajectories, `auto-bench-audit` can generate them by wrapping [Harbor](https://github.com/harbor-framework/harbor) (`uv sync --extra harbor`). The example below runs Claude Code Sonnet on Terminal-Bench 2 and writes a ready-to-audit collection config to `configs/harbor/collection_<name>.yaml`:
 
 ```bash
 # 1. Generate trajectories via Harbor (writes collection_<name>.yaml).
+#    The Harbor config reads TB2_JOBS_DIR and HARBOR_DATASETS_DIR (see .env.example).
 bench-audit generate \
-    --harbor-config configs/tb2/eval_claude_code_sonnet.yaml \
+    --harbor-config configs/harbor/eval_claude_code_sonnet.yaml \
     --benchmark-type tb2 \
     --agent-cli claude \
     --model claude-sonnet-4-6
 
 # 2. Audit the resulting trajectories.
 bench-audit audit-tasks \
-    --config configs/harbor/collection_terminal-bench.yaml \
+    --config configs/harbor/collection_tb2.yaml \
     --mode trajectory --all
 ```
 
 ## Switching Agent CLIs
 
-Audit agents are selected through the config field `agent_cli`. Supported values are `claude`, `cursor`, and `codex`. Claude requires `ANTHROPIC_API_KEY`; Cursor and Codex use their own installed CLI auth. The `model` field is passed through for Claude and Codex; Cursor currently ignores it.
-
-For one-off audits, pass `--agent-cli` to `audit_one.sh`:
+Each config names its auditor in `agent_cli` (`claude`, `cursor`, or `codex`) and `model`. Every command takes `--agent-cli` and `--model` to replace them for one run, so there is no need to edit a config. The model is passed through for Claude and Codex; Cursor currently ignores it. If you pass `--agent-cli` without `--model`, the config's model is dropped and the agent uses its own default.
 
 ```bash
-scripts/audit_one.sh \
-    --url https://github.com/centerforaisafety/hle \
-    --agent-cli codex \
-    --model gpt-5 \
-    --sample-n 3
-```
+# One-off audit
+bench-audit audit https://github.com/centerforaisafety/hle \
+    --agent-cli codex --model gpt-5 --sample-n 3
 
-For batch audits, the batch script reads `agent_cli` from each YAML config. Make a copy of a config, switch the agent fields, then pass it explicitly:
-
-```bash
-cp configs/multi_domain_all/science_expert_reasoning/gpqa_diamond.yaml /tmp/gpqa_diamond_codex.yaml
-perl -0pi -e 's/^agent_cli: .*/agent_cli: codex/m; s/^model: .*/model: gpt-5/m' /tmp/gpqa_diamond_codex.yaml
-
-bash scripts/batch_static_audit_pipeline.sh \
-    --config /tmp/gpqa_diamond_codex.yaml \
-    --max-tasks 100 --batch 50 --workers 3
-```
-
-For direct CLI runs, edit or copy the config the same way, then run the desired phase:
-
-```bash
+# One phase
 bench-audit audit-tasks \
-    --config /tmp/gpqa_diamond_codex.yaml \
-    --mode static \
-    --all
+    --config configs/multi_domain_all/science_expert_reasoning/gpqa_diamond.yaml \
+    --agent-cli codex --model gpt-5 --mode static --sample-n 20
+
+# Batch
+bash scripts/batch_static_audit_pipeline.sh \
+    --config configs/multi_domain_all/science_expert_reasoning/gpqa_diamond.yaml \
+    --agent-cli codex --model gpt-5 \
+    --max-tasks 100 --batch 50 --workers 3
 ```
 
 ## Project Layout
 
 ```
 auto-bench-audit/
-├── benchmarks/        # Benchmark indexes (multi-domain, frontier, leaderboards, benchguard)
-├── configs/           # Per-benchmark YAML configs (multi_domain_all, frontier_benchmarks,
-│                      #   swe_bench, tb2, harbor, quick)
+├── src/bench_audit/   # Audit CLI implementation (`bench-audit`)
 ├── rubrics/           # general_rubric.yaml + benchmark/task rubric .txt files
-├── scripts/           # audit_one.sh (one-command audit), batch_static_audit_pipeline
-│                      #   (batch), sample_tasks helper
-├── src/bench_audit/   # Audit CLI implementation
+├── configs/           # Per-benchmark YAML configs: multi_domain_all/ (paper inventory),
+│                      #   harbor/ (trajectory generation)
+├── scripts/           # batch_static_audit_pipeline (batch), sample_tasks helper,
+│                      #   audit_one.sh (old name for `bench-audit audit`)
+├── tests/             # Unit tests; they start no agent and cost nothing
+├── benchmarks/        # Paper analysis data (leaderboards, BenchGuard comparison,
+│                      #   benchmark selection). Not used by the code.
 └── pyproject.toml
 ```
+
+## Development
+
+```bash
+uv run pytest
+```
+
+The tests replace the agent with a stand-in, so they need no API key.
+
+## License
+
+The code is released under the [MIT License](LICENSE). Files under `benchmarks/` that come from other projects (leaderboard exports, BenchGuard data) keep the licenses of their sources.
 
 ## Citation
 
