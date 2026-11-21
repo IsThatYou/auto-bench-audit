@@ -10,10 +10,11 @@ from pathlib import Path
 
 import pytest
 
-from bench_audit.evidence_collection import ArtifactManifest, TaskConfig, TaskEntry, load_collection_config
+from bench_audit.config import load_benchmark_config
+from bench_audit.evidence_collection import ArtifactManifest, TaskConfig, TaskEntry
 from bench_audit.paths import resolve_output_root
-from bench_audit.task_evaluation import audit_tasks
-from bench_audit.task_evaluation import runner as task_runner
+from bench_audit.task_audit import audit_tasks
+from bench_audit.task_audit import runner as task_runner
 
 from .conftest import write_config
 
@@ -21,7 +22,7 @@ TASK_IDS = ["task-a", "task-b", "task-c"]
 
 
 def make_collection(tmp_path: Path):
-    config = load_collection_config(write_config(tmp_path / "bench"))
+    config = load_benchmark_config(write_config(tmp_path / "bench"))
     output_root = resolve_output_root(config)
     for task_id in TASK_IDS:
         task_dir = output_root / "task_configs" / task_id

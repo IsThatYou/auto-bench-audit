@@ -6,7 +6,7 @@ import pytest
 
 from bench_audit import agent_cli
 from bench_audit.agent_cli import AgentCliError, build_agent_request
-from bench_audit.task_evaluation.context import select_task_configs
+from bench_audit.task_audit.context import select_task_configs
 
 
 def task(task_id: str, status: str = "unscored", n_passed: int = 0, n_failed: int = 0):

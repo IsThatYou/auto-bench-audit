@@ -55,6 +55,7 @@ def generate_trajectories(
 
     # Write patched config to a temp file.
     tmp_fd, tmp_path = tempfile.mkstemp(suffix=".yaml")
+    os.close(tmp_fd)  # only the path is needed
     tmp_config = Path(tmp_path)
     try:
         tmp_config.write_text(yaml.dump(harbor_data, default_flow_style=False, sort_keys=False))

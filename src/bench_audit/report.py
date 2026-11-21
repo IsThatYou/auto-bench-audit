@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
 
 from .audit_models import TaskAuditRecord
 from .audit_protocol import GeneralRubric, task_audit_dir

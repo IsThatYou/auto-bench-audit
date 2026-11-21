@@ -1,12 +1,12 @@
 # Config Directory Guide
 
-This directory contains benchmark collection and audit configs. The batch static audit pipeline auto-discovers only configs under `multi_domain_all/*/*.yaml`.
+This directory contains benchmark collection and audit configs. `bench-audit batch` auto-discovers only configs under `multi_domain_all/*/*.yaml`.
 
 ## Top-level directories
 
 | Directory | YAML configs | Purpose |
 | --- | ---: | --- |
-| `multi_domain_all/` | 143 | Main batch-audit inventory, organized by paper-facing benchmark domain. This is what `scripts/batch_static_audit_pipeline.sh` discovers by default. |
+| `multi_domain_all/` | 143 | Main batch-audit inventory, organized by paper-facing benchmark domain. This is what `bench-audit batch` discovers by default. |
 | `harbor/` | 1 | Harbor trajectory-generation configs, used with `bench-audit generate` before auditing generated run collections. `generate` also writes `collection_<name>.yaml` here (ignored by git). |
 
 One-off audits (`bench-audit audit <url>`) do not write here. Their config goes next to the clone, at `data/benchmark_repos/<name>/config.yaml`.
@@ -32,19 +32,19 @@ One-off audits (`bench-audit audit <url>`) do not write here. Their config goes 
 Run all domain configs:
 
 ```bash
-bash scripts/batch_static_audit_pipeline.sh --max-tasks 100 --batch 50 --workers 3
+bench-audit batch --max-tasks 100 --batch 50 --workers 3
 ```
 
 Run one domain:
 
 ```bash
-bash scripts/batch_static_audit_pipeline.sh --domain code_swe --max-tasks 100 --batch 50 --workers 3
+bench-audit batch --domain code_swe --max-tasks 100 --batch 50 --workers 3
 ```
 
 Run specific configs:
 
 ```bash
-bash scripts/batch_static_audit_pipeline.sh \
+bench-audit batch \
   --config configs/multi_domain_all/science_expert_reasoning/gpqa_diamond.yaml \
   --config configs/multi_domain_all/code_swe/frontier_swe.yaml
 ```
@@ -52,5 +52,5 @@ bash scripts/batch_static_audit_pipeline.sh \
 Use another agent or model for the whole batch, without editing configs:
 
 ```bash
-bash scripts/batch_static_audit_pipeline.sh --domain code_swe --agent-cli codex --model gpt-5
+bench-audit batch --domain code_swe --agent-cli codex --model gpt-5
 ```

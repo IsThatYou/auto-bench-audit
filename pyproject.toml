@@ -27,7 +27,7 @@ Repository = "https://github.com/IsThatYou/auto-bench-audit"
 bench-audit = "bench_audit.cli:main"
 
 [dependency-groups]
-dev = ["pytest>=8.0"]
+dev = ["pytest>=8.0", "ruff>=0.8"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/bench_audit"]
@@ -42,3 +42,14 @@ include = ["/src", "/rubrics", "/tests", "/README.md", "/LICENSE", "/pyproject.t
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 160
+# benchmarks/ holds paper-analysis scripts that are not part of the package.
+extend-exclude = ["benchmarks"]
+target-version = "py312"
+
+[tool.ruff.lint]
+# E/W: style, F: unused names and undefined names, I: import order, UP: old syntax, B: likely bugs
+select = ["E", "W", "F", "I", "UP", "B"]
+ignore = ["E501"]  # long lines: the prompts are long on purpose

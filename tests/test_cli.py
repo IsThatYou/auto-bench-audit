@@ -9,7 +9,7 @@ from bench_audit.audit_protocol import PHASE_ORDER, load_general_rubric, resolve
 
 from .conftest import write_config
 
-COMMANDS = ["audit", "audit-benchmark", "collect-evidence", "audit-tasks", "generate", "run"]
+COMMANDS = ["audit", "audit-benchmark", "collect-evidence", "audit-tasks", "generate", "run", "batch"]
 
 
 @pytest.fixture
@@ -26,7 +26,7 @@ def calls(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, object, dict]]:
 
     monkeypatch.setattr(cli, "audit_benchmark", recorder("benchmark_audit"))
     monkeypatch.setattr(cli, "collect_evidence", recorder("evidence_collection"))
-    monkeypatch.setattr(cli, "audit_tasks", recorder("per_task_evaluation"))
+    monkeypatch.setattr(cli, "audit_tasks", recorder("task_audit"))
     return seen
 
 
@@ -51,6 +51,32 @@ def test_run_goes_through_all_three_phases_by_default(tmp_path: Path, calls):
 def test_run_can_stop_early(tmp_path: Path, calls):
     cli.main(["run", "--config", str(write_config(tmp_path)), "--end-phase", "evidence_collection"])
     assert [name for name, _, _ in calls] == PHASE_ORDER[:2]
+
+
+def test_older_phase_name_still_works(tmp_path: Path, calls):
+    cli.main(["run", "--config", str(write_config(tmp_path)), "--start-phase", "per_task_evaluation"])
+    assert [name for name, _, _ in calls] == ["task_audit"]
+
+
+def test_older_phase_name_in_a_rubric_file(tmp_path: Path):
+    rubric = tmp_path / "rubric.yaml"
+    rubric.write_text(
+        "version: '0.2'\n"
+        "phases:\n"
+        "  benchmark_audit: {enabled: true}\n"
+        "  evidence_collection: {enabled: true}\n"
+        "  per_task_evaluation: {enabled: true, output_dir: task_audits}\n"
+    )
+    assert load_general_rubric(rubric).phase("task_audit").output_dir == "task_audits"
+
+
+def test_older_config_names_still_import():
+    from bench_audit.config import BenchmarkConfig, load_benchmark_config
+    from bench_audit.evidence_collection import EvidenceCollectionConfig, load_collection_config
+    from bench_audit.evidence_collection.config import EvidenceCollectionConfig as from_old_module
+
+    assert EvidenceCollectionConfig is BenchmarkConfig is from_old_module
+    assert load_collection_config is load_benchmark_config
 
 
 def test_model_flag_replaces_the_config_model(tmp_path: Path, calls):
@@ -121,5 +147,5 @@ def test_env_file_does_not_replace_a_set_variable(tmp_path: Path, monkeypatch: p
 def test_rubrics_are_found():
     rubric = load_general_rubric()
     assert resolve_phase_sequence(rubric, PHASE_ORDER[0], PHASE_ORDER[-1]) == PHASE_ORDER
-    for phase in ("benchmark_audit", "per_task_evaluation"):
+    for phase in ("benchmark_audit", "task_audit"):
         assert resolve_repo_path(rubric.phase(phase).rubric).is_file()

@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .evidence_collection.config import EvidenceCollectionConfig
+    from .config import BenchmarkConfig
 
 DEFAULT_DIRS = {
     "AUDIT_RUN_DIR": "data/audit_runs",
@@ -84,7 +84,7 @@ def resource_root() -> Path:
     return checkout_root() or Path(__file__).resolve().parent
 
 
-def resolve_output_root(config: EvidenceCollectionConfig) -> Path:
+def resolve_output_root(config: BenchmarkConfig) -> Path:
     """Return ``<AUDIT_RUN_DIR>/<benchmark_type>/<name>__<output_subdir>__<job_type>``."""
     return (
         env_dir("AUDIT_RUN_DIR")
@@ -93,7 +93,7 @@ def resolve_output_root(config: EvidenceCollectionConfig) -> Path:
     ).resolve()
 
 
-def build_output_dir_name(config: EvidenceCollectionConfig) -> str:
+def build_output_dir_name(config: BenchmarkConfig) -> str:
     return "__".join(
         [
             sanitize_dir_part(config.benchmark_name),
@@ -111,7 +111,7 @@ def sanitize_dir_part(value: str) -> str:
 
 
 def build_agent_add_dirs(
-    config: EvidenceCollectionConfig,
+    config: BenchmarkConfig,
     output_root: Path,
     *,
     include_repo_dir: bool = True,

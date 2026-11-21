@@ -8,7 +8,7 @@ phases:
   evidence_collection:
     enabled: true
 
-  per_task_evaluation:
+  task_audit:
     enabled: true
     rubric: rubrics/task_rubric_ambiguity_v3.txt
     output_dir: task_audits

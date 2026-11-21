@@ -4,7 +4,8 @@ import json
 from dataclasses import asdict
 from typing import Any
 
-from ..evidence_collection import EvidenceCollectionConfig, TaskConfig
+from ..config import BenchmarkConfig
+from ..evidence_collection import TaskConfig
 from .context import EvalArtifactPaths
 
 _PREAMBLE = """\
@@ -213,7 +214,7 @@ conclusions."""
 def render_static_task_audit_prompt(
     task_config: TaskConfig,
     rubric_text: str,
-    config: EvidenceCollectionConfig,
+    config: BenchmarkConfig,
     agent_cli: str = "claude",
 ) -> str:
     parts = [_STATIC_PREAMBLE]

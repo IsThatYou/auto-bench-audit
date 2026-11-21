@@ -5,8 +5,8 @@ from pathlib import Path
 from typing import Any
 
 from ..agent_cli import build_agent_request, invoke_text
+from ..config import BenchmarkConfig
 from ..paths import build_agent_add_dirs, build_output_dir_name, resolve_output_root  # noqa: F401  (scripts import these from here)
-from .config import EvidenceCollectionConfig
 from .models import (
     ArtifactManifest,
     TaskConfig,
@@ -16,7 +16,7 @@ from .prompt import render_collect_prompt
 
 
 def collect_evidence(
-    config: EvidenceCollectionConfig,
+    config: BenchmarkConfig,
     force: bool = False,
 ) -> dict[str, Any]:
     config.validate()

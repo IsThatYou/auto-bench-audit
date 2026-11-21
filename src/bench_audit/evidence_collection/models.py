@@ -15,7 +15,7 @@ class TaskEntry:
     eval_ids: list[str] = field(default_factory=list)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "TaskEntry":
+    def from_dict(cls, data: dict[str, Any]) -> TaskEntry:
         # Support both flat eval_ids list and rich evals list (with eval_id key).
         raw_eval_ids = data.get("eval_ids")
         if raw_eval_ids is None:
@@ -71,7 +71,7 @@ class ArtifactManifest:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "ArtifactManifest":
+    def from_dict(cls, data: dict[str, Any]) -> ArtifactManifest:
         tasks = [TaskEntry.from_dict(item) for item in data.get("tasks", [])]
         manifest = cls(
             manifest_version=int(data.get("manifest_version", 2)),
@@ -87,7 +87,7 @@ class ArtifactManifest:
         return manifest
 
     @classmethod
-    def load_yaml(cls, path: str | Path) -> "ArtifactManifest":
+    def load_yaml(cls, path: str | Path) -> ArtifactManifest:
         data = yaml.safe_load(Path(path).read_text()) or {}
         return cls.from_dict(data)
 
@@ -128,7 +128,7 @@ class TaskConfig:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "TaskConfig":
+    def from_dict(cls, data: dict[str, Any]) -> TaskConfig:
         return cls(
             benchmark_name=str(data.get("benchmark_name") or ""),
             benchmark_type=str(data.get("benchmark_type") or ""),
@@ -151,7 +151,7 @@ class TaskConfig:
         )
 
     @classmethod
-    def load_json(cls, path: str | Path) -> "TaskConfig":
+    def load_json(cls, path: str | Path) -> TaskConfig:
         return cls.from_dict(json.loads(Path(path).read_text()))
 
     def save_json(self, path: str | Path) -> None:
@@ -190,7 +190,7 @@ class EvalConfig:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "EvalConfig":
+    def from_dict(cls, data: dict[str, Any]) -> EvalConfig:
         metrics = data.get("metrics")
         if metrics is not None and not isinstance(metrics, (dict, list)):
             metrics = None
@@ -214,7 +214,7 @@ class EvalConfig:
         )
 
     @classmethod
-    def load_json(cls, path: str | Path) -> "EvalConfig":
+    def load_json(cls, path: str | Path) -> EvalConfig:
         return cls.from_dict(json.loads(Path(path).read_text()))
 
     def save_json(self, path: str | Path) -> None:

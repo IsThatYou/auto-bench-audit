@@ -195,7 +195,7 @@ def _run_command(
         if stdout:
             print(f"[bench-audit] {agent_cli} timed out after {timeout}s but produced output; recovering", file=sys.stderr)
         else:
-            raise AgentCliError(f"{agent_cli} timed out after {timeout}s")
+            raise AgentCliError(f"{agent_cli} timed out after {timeout}s") from None
     else:
         stdout = (stdout or "").strip()
         stderr = (stderr or "").strip()

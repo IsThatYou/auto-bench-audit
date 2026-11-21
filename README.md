@@ -89,24 +89,26 @@ The audits from the paper (168 benchmarks) are browsable at [autobenchaudit.com]
 
 ## Batch of Benchmarks Audit Pipeline
 
-For batch runs across many benchmarks, use the streaming pipeline. It runs five stages per benchmark: `audit-benchmark` → `collect-evidence` → `sample-tasks` → `audit-tasks` → cleanup.
+For batch runs across many benchmarks, use `bench-audit batch`. It runs five stages per benchmark: `audit-benchmark` → `collect-evidence` → `sample-tasks` → `audit-tasks` → cleanup. A second run continues where the first one stopped.
 
 ```bash
 # Run all benchmarks under configs/multi_domain_all/
-bash scripts/batch_static_audit_pipeline.sh
+bench-audit batch
 
-# Limit to one domain
-bash scripts/batch_static_audit_pipeline.sh --domain medical_health
+# Limit to one domain, 20 sampled tasks per benchmark
+bench-audit batch --domain medical_health --max-tasks 20
 
 # Run a specific config
-bash scripts/batch_static_audit_pipeline.sh \
+bench-audit batch \
     --config configs/multi_domain_all/medical_health/clinbench.yaml
 
 # Inspect tracker state
-bash scripts/batch_static_audit_pipeline.sh --status
+bench-audit batch --status
 ```
 
-The batch output folder is `data/multi_domain_all`; set `MULTI_DOMAIN_AUDIT_RUN_DIR` to change it. The pipeline writes its tracker to `configs/multi_domain_all/streaming_pipeline_tracking.json`.
+The pipeline writes its tracker to `$AUDIT_RUN_DIR/streaming_pipeline_tracking.json`, next to the results. By default it deletes each benchmark's clone and data after a full success; pass `--keep` to keep them.
+
+(`bash scripts/batch_static_audit_pipeline.sh` still works. It calls `bench-audit batch` with the output folder `data/multi_domain_all`; set `MULTI_DOMAIN_AUDIT_RUN_DIR` to change it.)
 
 ## Step-by-Step Audit Pipeline
 
@@ -194,7 +196,7 @@ bench-audit audit-tasks \
     --agent-cli codex --model gpt-5 --mode static --sample-n 20
 
 # Batch
-bash scripts/batch_static_audit_pipeline.sh \
+bench-audit batch \
     --config configs/multi_domain_all/science_expert_reasoning/gpqa_diamond.yaml \
     --agent-cli codex --model gpt-5 \
     --max-tasks 100 --batch 50 --workers 3
@@ -208,8 +210,8 @@ auto-bench-audit/
 ├── rubrics/           # general_rubric.yaml + benchmark/task rubric .txt files
 ├── configs/           # Per-benchmark YAML configs: multi_domain_all/ (paper inventory),
 │                      #   harbor/ (trajectory generation)
-├── scripts/           # batch_static_audit_pipeline (batch), sample_tasks helper,
-│                      #   audit_one.sh (old name for `bench-audit audit`)
+├── scripts/           # Old entry points, kept as thin wrappers: audit_one.sh
+│                      #   (`bench-audit audit`), batch_static_audit_pipeline.sh (`bench-audit batch`)
 ├── tests/             # Unit tests; they start no agent and cost nothing
 ├── benchmarks/        # Paper analysis data (leaderboards, BenchGuard comparison,
 │                      #   benchmark selection). Not used by the code.
@@ -219,10 +221,11 @@ auto-bench-audit/
 ## Development
 
 ```bash
-uv run pytest
+uv run pytest       # unit tests
+uv run ruff check   # lint
 ```
 
-The tests replace the agent with a stand-in, so they need no API key.
+The tests replace the agent with a stand-in, so they need no API key. One test parses every `bench-audit` command in this README, so a renamed flag or a moved file fails CI.
 
 ## License
 

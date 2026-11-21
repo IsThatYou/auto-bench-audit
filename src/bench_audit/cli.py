@@ -6,12 +6,14 @@ import sys
 from pathlib import Path
 
 from .agent_cli import AGENT_BINARIES, AgentCliError
-from .audit_protocol import PHASE_ORDER, load_general_rubric, resolve_phase_sequence
+from .audit_protocol import PHASE_ORDER, load_general_rubric, normalize_phase, resolve_phase_sequence
+from .batch import add_batch_arguments, run_batch
 from .benchmark_audit import audit_benchmark
-from .evidence_collection import EvidenceCollectionConfig, collect_evidence, load_collection_config
+from .config import BenchmarkConfig, load_benchmark_config
+from .evidence_collection import collect_evidence
 from .paths import checkout_root
 from .quick_audit import run_quick_audit
-from .task_evaluation import audit_tasks
+from .task_audit import audit_tasks
 from .trajectory_generation import generate_trajectories
 
 DESCRIPTION = """\
@@ -22,8 +24,8 @@ Quick start (clones the repo, then audits 5 sampled tasks):
 
   bench-audit audit https://github.com/centerforaisafety/hle
 
-An audit has three phases. `audit` and `run` do all of them. You can also run
-one phase at a time:
+An audit has three phases. `audit` and `run` do all of them for one benchmark,
+and `batch` does them for many. You can also run one phase at a time:
 
   1. audit-benchmark    review the benchmark as a whole
   2. collect-evidence   list the tasks and write one task config per task
@@ -111,9 +113,21 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_config_args(run)
     run.add_argument("--job-type", choices=["actual"], help="Kind of recorded runs to collect (default: from the config)")
-    run.add_argument("--start-phase", choices=PHASE_ORDER, default=PHASE_ORDER[0], help=f"First phase (default: {PHASE_ORDER[0]})")
-    run.add_argument("--end-phase", choices=PHASE_ORDER, default=PHASE_ORDER[-1], help=f"Last phase (default: {PHASE_ORDER[-1]})")
+    run.add_argument("--start-phase", type=normalize_phase, choices=PHASE_ORDER, default=PHASE_ORDER[0], help=f"First phase (default: {PHASE_ORDER[0]})")
+    run.add_argument("--end-phase", type=normalize_phase, choices=PHASE_ORDER, default=PHASE_ORDER[-1], help=f"Last phase (default: {PHASE_ORDER[-1]})")
     _add_task_audit_args(run)
+
+    batch = add(
+        "batch",
+        "Audit many benchmarks from a folder of configs, with a progress tracker.",
+        "Run the phases for every config under configs/multi_domain_all/ (or the configs you name).\n"
+        "Per benchmark: audit-benchmark, collect-evidence, sample tasks, audit-tasks, then delete the clone.\n"
+        "A second run continues where the first one stopped.\n\n"
+        "Examples:\n"
+        "  bench-audit batch --domain medical_health --max-tasks 20\n"
+        "  bench-audit batch --status",
+    )
+    add_batch_arguments(batch)
 
     return parser
 
@@ -177,9 +191,9 @@ def parse_env_text(text: str) -> dict[str, str]:
     return values
 
 
-def load_config(args: argparse.Namespace) -> EvidenceCollectionConfig:
+def load_config(args: argparse.Namespace) -> BenchmarkConfig:
     """Load ``--config`` and apply ``--agent-cli`` / ``--model``."""
-    config = load_collection_config(args.config)
+    config = load_benchmark_config(args.config)
     agent_cli = getattr(args, "agent_cli", None)
     model = getattr(args, "model", None)
     if agent_cli and agent_cli != config.agent_cli:
@@ -231,6 +245,9 @@ def _dispatch(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
         )
         return 0
 
+    if args.command == "batch":
+        return run_batch(args)
+
     if args.command == "generate":
         generate_trajectories(
             harbor_config=Path(args.harbor_config).resolve(),
@@ -266,14 +283,14 @@ def _dispatch(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
             _audit_benchmark(config, args)
         if "evidence_collection" in phases:
             collect_evidence(config, force=args.force)
-        if "per_task_evaluation" in phases:
+        if "task_audit" in phases:
             _audit_tasks(config, args)
         return 0
 
     raise SystemExit(f"unknown command: {args.command}")
 
 
-def _audit_benchmark(config: EvidenceCollectionConfig, args: argparse.Namespace) -> None:
+def _audit_benchmark(config: BenchmarkConfig, args: argparse.Namespace) -> None:
     audit_benchmark(
         config,
         general_rubric_path=args.general_rubric,
@@ -283,7 +300,7 @@ def _audit_benchmark(config: EvidenceCollectionConfig, args: argparse.Namespace)
     )
 
 
-def _audit_tasks(config: EvidenceCollectionConfig, args: argparse.Namespace) -> None:
+def _audit_tasks(config: BenchmarkConfig, args: argparse.Namespace) -> None:
     audit_tasks(
         config,
         general_rubric_path=args.general_rubric,

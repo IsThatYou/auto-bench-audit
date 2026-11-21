@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .config import EvidenceCollectionConfig
+from ..config import BenchmarkConfig
 
 
 def render_collect_prompt(
-    config: EvidenceCollectionConfig,
+    config: BenchmarkConfig,
     output_root: str,
     collector_path: str,
     manifest_path: str,
@@ -15,7 +15,7 @@ def render_collect_prompt(
     models_path = Path(__file__).with_name("models.py").resolve()
 
     if config.is_static:
-        return _render_neurips_collect_prompt(
+        return _render_static_collect_prompt(
             config, output_root, collector_path, manifest_path, task_config_dir, models_path,
         )
 
@@ -85,8 +85,8 @@ Conventions:
 {swe_bench_test_download}"""
 
 
-def _render_neurips_collect_prompt(
-    config: EvidenceCollectionConfig,
+def _render_static_collect_prompt(
+    config: BenchmarkConfig,
     output_root: str,
     collector_path: str,
     manifest_path: str,
@@ -195,6 +195,7 @@ Benchmark inputs:
 - benchmark_data_dir: {config.benchmark_data_dir}
 {repo_line}\
 {code_url_line}\
+{dataset_line}\
 - output_root: {output_root}
 
 ### TaskConfig field rules
@@ -292,13 +293,13 @@ This gives the audit agent a local tests_ref directory — the same contract as 
 """
 
 
-def _swe_bench_test_download_block(config: EvidenceCollectionConfig) -> str:
+def _swe_bench_test_download_block(config: BenchmarkConfig) -> str:
     if config.benchmark_type == "swe_bench" and config.fetch_test_sources:
         return _SWE_BENCH_TEST_DOWNLOAD
     return ""
 
 
-def _dirs_block(config: EvidenceCollectionConfig) -> str:
+def _dirs_block(config: BenchmarkConfig) -> str:
     lines: list[str] = []
     lines.append(f"- source_data_dir: {config.source_data_dir}\n")
     if config.runs_dir:

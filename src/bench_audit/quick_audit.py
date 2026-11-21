@@ -16,9 +16,10 @@ import yaml
 
 from .agent_cli import require_agent_binary
 from .benchmark_audit import audit_benchmark
-from .evidence_collection import collect_evidence, load_collection_config
+from .config import load_benchmark_config
+from .evidence_collection import collect_evidence
 from .paths import env_dir, resolve_output_root
-from .task_evaluation import audit_tasks
+from .task_audit import audit_tasks
 
 DEFAULT_MODELS = {"claude": "claude-opus-4-7"}
 
@@ -106,7 +107,7 @@ def run_quick_audit(
 
     config_path = write_quick_config(bench_dir, name=name, url=url, agent_cli=agent_cli, model=model, domain=domain)
     _log(f"wrote config {config_path}")
-    config = load_collection_config(config_path)
+    config = load_benchmark_config(config_path)
 
     if skip_benchmark_audit:
         _log("skipping the benchmark-level audit")
