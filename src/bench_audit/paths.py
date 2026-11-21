@@ -84,6 +84,11 @@ def resource_root() -> Path:
     return checkout_root() or Path(__file__).resolve().parent
 
 
+def skill_path() -> Path:
+    """Return the agent skill file (``skills/bench-audit/SKILL.md``)."""
+    return resource_root() / "skills" / "bench-audit" / "SKILL.md"
+
+
 def resolve_output_root(config: BenchmarkConfig) -> Path:
     """Return ``<AUDIT_RUN_DIR>/<benchmark_type>/<name>__<output_subdir>__<job_type>``."""
     return (

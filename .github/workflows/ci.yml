@@ -20,6 +20,7 @@ jobs:
             configs
             rubrics
             scripts
+            skills
             src
             tests
       - uses: astral-sh/setup-uv@v5
@@ -35,4 +36,5 @@ jobs:
           uv pip install --python /tmp/wheel-env/bin/python dist/*.whl
           cd /tmp
           /tmp/wheel-env/bin/bench-audit --help
+          /tmp/wheel-env/bin/bench-audit skill | grep -q '^name: bench-audit$'
           /tmp/wheel-env/bin/python -c "from bench_audit.audit_protocol import load_general_rubric, resolve_repo_path as r; g = load_general_rubric(); assert r(g.phase('task_audit').rubric).is_file()"
