@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from ..agent_cli import AgentCliError, build_agent_request, invoke_structured, set_aside_failed_log
-from ..audit_models import AGENT_ERROR, TaskAuditRecord, parse_agent_json_object, record_is_done, task_audit_record_json_schema
+from ..audit_models import AGENT_ERROR, FAILED_MARK, TaskAuditRecord, is_failed_call, parse_agent_json_object, record_is_done, task_audit_record_json_schema
 from ..audit_protocol import (
     build_agent_add_dirs,
     load_collection_state,
@@ -159,7 +159,7 @@ def audit_tasks(
             set_aside_failed_log(conversation_log_path)  # the log of the failed attempt from an earlier run
         record = _audit_once(task_config, conversation_log_path)
         for attempt in range(2, attempts + 1):
-            if record.overall_judgment != AGENT_ERROR:
+            if not is_failed_call(record.overall_judgment, record.summary):
                 break
             progress.note(f"{task_id} — failed, starting attempt {attempt} of {attempts}: {_one_line(record.summary)}")
             set_aside_failed_log(conversation_log_path)
@@ -170,7 +170,7 @@ def audit_tasks(
         futures = {pool.submit(_process, tc, tp): tc.task_id for tc, tp in to_run}
         for future in as_completed(futures):
             task_id, target_path, record = future.result()
-            is_error = record.overall_judgment == AGENT_ERROR
+            is_error = is_failed_call(record.overall_judgment, record.summary)
             record.save_json(target_path)
             written_paths.append(str(target_path))
             if is_error:
@@ -247,7 +247,7 @@ def _run_single_task(
             rubric_path=rubric_path,
             audit_trajectory_path=str(conversation_log_path) if conversation_log_path else None,
             overall_judgment=AGENT_ERROR,
-            summary=f"Task audit failed before a valid record was produced: {exc}",
+            summary=f"Task audit {FAILED_MARK}: {exc}",
             confidence="low",
             findings=[],
         )
@@ -290,7 +290,7 @@ def _run_single_static_task(
             rubric_path=rubric_path,
             audit_trajectory_path=str(conversation_log_path) if conversation_log_path else None,
             overall_judgment=AGENT_ERROR,
-            summary=f"Static task audit failed before a valid record was produced: {exc}",
+            summary=f"Static task audit {FAILED_MARK}: {exc}",
             confidence="low",
             findings=[],
         )

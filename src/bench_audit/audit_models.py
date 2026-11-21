@@ -365,20 +365,32 @@ class BenchmarkAuditRecord:
 
 
 AGENT_ERROR = "agent_error"
+# bench-audit writes this into the summary of a record when the agent call failed.
+FAILED_MARK = "failed before a valid record was produced"
+
+
+def is_failed_call(overall_judgment: str, summary: str) -> bool:
+    """Return True for a record that bench-audit wrote because the agent call failed.
+
+    The judgment alone does not tell: ``agent_error`` is also one of the answers
+    that the auditor may give, and it sometimes gives it together with a normal
+    verdict. Such a record is a real answer, and a new attempt would only repeat
+    it. A failed call has the judgment and ``FAILED_MARK`` in its summary.
+    """
+    return overall_judgment == AGENT_ERROR and FAILED_MARK in (summary or "")
 
 
 def record_is_done(path: str | Path) -> bool:
     """Return True when the record at ``path`` holds a finished audit.
 
-    A record that is missing, unreadable, or an ``agent_error`` is not done:
-    the agent call failed before it gave a valid answer, so the next run must
-    try again.
+    A record that is missing, unreadable, or left by a failed agent call is
+    not done, so the next run must try again.
     """
     try:
         data = json.loads(Path(path).read_text())
     except (OSError, ValueError):
         return False
-    return isinstance(data, dict) and data.get("overall_judgment") != AGENT_ERROR
+    return isinstance(data, dict) and not is_failed_call(str(data.get("overall_judgment") or ""), str(data.get("summary") or ""))
 
 
 def _finding_json_schema() -> dict[str, Any]:
