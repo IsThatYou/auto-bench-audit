@@ -1,5 +1,4 @@
-#!/usr/bin/env python3
-"""Streaming per-benchmark audit pipeline with cleanup.
+"""Audit many benchmarks, one after another, with cleanup (`bench-audit batch`).
 
 For each YAML config under configs/multi_domain_all/<domain>/<benchmark>.yaml:
   1. audit-benchmark   (skip if benchmark_audit.json + benchmark_audit_report.md exist)
@@ -8,7 +7,10 @@ For each YAML config under configs/multi_domain_all/<domain>/<benchmark>.yaml:
   4. audit-tasks       (run on first --batch pending sampled task IDs)
   5. cleanup           (rm -rf benchmark_repo_dir + benchmark_data_dir on success)
 
-Tracking lives in configs/multi_domain_all/streaming_pipeline_tracking.json.
+Each of stages 1, 2, and 4 runs as its own `bench-audit` process, so one
+failed benchmark does not stop the batch.
+
+Progress is tracked in $AUDIT_RUN_DIR/streaming_pipeline_tracking.json.
 Use --status to print the current progress table without doing any work.
 """
 
@@ -24,21 +26,18 @@ import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-ROOT_DIR = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT_DIR / "src"))
+from .config import load_benchmark_config
+from .paths import checkout_root, env_dir, resolve_output_root
+from .task_audit.sampling import write_task_sample
 
-from bench_audit.evidence_collection import load_collection_config
-from bench_audit.evidence_collection.runner import resolve_output_root
-
-CONFIG_DIR = ROOT_DIR / "configs" / "multi_domain_all"
-TRACKER_PATH = CONFIG_DIR / "streaming_pipeline_tracking.json"
-LOCK_PATH = CONFIG_DIR / ".streaming_pipeline.lock"
-PYTHON = str(ROOT_DIR / ".venv" / "bin" / "python")
-RUBRIC = str(ROOT_DIR / "rubrics" / "task_rubric_ambiguity_v3.txt")
+TRACKER_NAME = "streaming_pipeline_tracking.json"
+# Set by configure_tracker(). The tracker lives in the output folder.
+TRACKER_PATH = Path(TRACKER_NAME)
+LOCK_PATH = Path(".streaming_pipeline.lock")
 
 STAGES = (
     "stage_benchmark_audit",
@@ -51,20 +50,51 @@ _print_lock = threading.Lock()
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
-def discover_configs(domain: str | None, explicit: list[str]) -> list[str]:
+def default_config_dir() -> Path:
+    """configs/multi_domain_all in the source checkout, or under the current folder."""
+    root = checkout_root() or Path.cwd()
+    return root / "configs" / "multi_domain_all"
+
+
+def configure_tracker(audit_run_dir: Path, config_dir: Path) -> None:
+    """Point the tracker at the output folder.
+
+    Older versions kept the tracker next to the configs. If only that file
+    exists, it is copied once, so the status of earlier runs is kept.
+    """
+    global TRACKER_PATH, LOCK_PATH
+    TRACKER_PATH = audit_run_dir / TRACKER_NAME
+    LOCK_PATH = audit_run_dir / ".streaming_pipeline.lock"
+    legacy = config_dir / TRACKER_NAME
+    if not TRACKER_PATH.exists() and legacy.is_file():
+        TRACKER_PATH.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(legacy, TRACKER_PATH)
+        print(f"Copied the tracker from {legacy} to {TRACKER_PATH}")
+
+
+def discover_configs(domain: str | None, explicit: list[str], config_dir: Path) -> list[str]:
     if explicit:
         return [str(Path(c)) for c in explicit]
-    base = CONFIG_DIR / domain if domain else CONFIG_DIR
+    base = config_dir / domain if domain else config_dir
     if domain and not base.is_dir():
         sys.exit(f"Unknown domain: {domain}")
+    if not base.is_dir():
+        sys.exit(f"No config folder at {base}. Pass --config <file> or --config-dir <folder>.")
     if domain:
         files = sorted(base.glob("*.yaml"))
     else:
         files = sorted(p for p in base.glob("*/*.yaml"))
-    return [str(p.relative_to(ROOT_DIR)) for p in files]
+    return [_relative_to_cwd(p) for p in files]
+
+
+def _relative_to_cwd(path: Path) -> str:
+    try:
+        return str(path.resolve().relative_to(Path.cwd().resolve()))
+    except ValueError:
+        return str(path)
 
 
 def with_tracker_lock(fn):
@@ -123,7 +153,7 @@ def init_tracker(configs: list[str]) -> None:
                 new_entries.append(existing_by_cfg[cfg])
                 continue
             try:
-                bench_name = load_collection_config(cfg).benchmark_name
+                bench_name = load_benchmark_config(cfg).benchmark_name
             except Exception:
                 bench_name = Path(cfg).stem
             new_entries.append({
@@ -207,12 +237,26 @@ def pending_task_ids(output_root: Path, batch: int) -> list[str]:
     return pending
 
 
+def agent_flags(args: argparse.Namespace) -> list[str]:
+    """--agent-cli / --model, passed on to every bench-audit phase."""
+    flags: list[str] = []
+    if args.agent_cli:
+        flags += ["--agent-cli", args.agent_cli]
+    if args.model:
+        flags += ["--model", args.model]
+    return flags
+
+
 def run_subprocess(cmd: list[str], audit_run_dir: str) -> int:
     env = os.environ.copy()
-    env["PYTHONPATH"] = "src"
     env["AUDIT_RUN_DIR"] = audit_run_dir
-    proc = subprocess.run(cmd, env=env, cwd=str(ROOT_DIR))
+    proc = subprocess.run(cmd, env=env, check=False)
     return proc.returncode
+
+
+def phase_command(*args: str) -> list[str]:
+    """One bench-audit phase, run with the same Python as this process."""
+    return [sys.executable, "-m", "bench_audit", *args]
 
 
 def fmt_duration(seconds: float) -> str:
@@ -229,7 +273,7 @@ def run_pipeline_for_config(
     args: argparse.Namespace,
     audit_run_dir: str,
 ) -> bool:
-    bench_cfg = load_collection_config(config)
+    bench_cfg = load_benchmark_config(config)
     output_root = Path(resolve_output_root(bench_cfg))
     repo_dir = Path(bench_cfg.benchmark_repo_dir)
     data_dir = Path(bench_cfg.benchmark_data_dir)
@@ -243,8 +287,6 @@ def run_pipeline_for_config(
         error=None,
     )
 
-    success = True
-
     # Stage 1: benchmark audit
     stage = "stage_benchmark_audit"
     if not args.force and stage_done_outputs(stage, output_root):
@@ -253,11 +295,12 @@ def run_pipeline_for_config(
     else:
         log(f"{label} STAGE benchmark_audit  RUNNING")
         update_entry(config, **{stage: "running"})
-        cmd = [
-            PYTHON, "-m", "bench_audit", "audit-benchmark",
+        cmd = phase_command(
+            "audit-benchmark",
             "--config", config,
             "--timeout", str(args.timeout),
-        ]
+            *agent_flags(args),
+        )
         if args.force:
             cmd.append("--force")
         t0 = time.monotonic()
@@ -281,7 +324,7 @@ def run_pipeline_for_config(
     else:
         log(f"{label} STAGE collect_evidence RUNNING")
         update_entry(config, **{stage: "running"})
-        cmd = [PYTHON, "-m", "bench_audit", "collect-evidence", "--config", config]
+        cmd = phase_command("collect-evidence", "--config", config, *agent_flags(args))
         if args.force:
             cmd.append("--force")
         t0 = time.monotonic()
@@ -305,26 +348,18 @@ def run_pipeline_for_config(
     else:
         log(f"{label} STAGE sample_tasks     RUNNING")
         update_entry(config, **{stage: "running"})
-        cmd = [
-            PYTHON, str(ROOT_DIR / "scripts" / "sample_tasks.py"),
-            "--config", config,
-            "--max-tasks", str(args.max_tasks),
-            "--seed", str(args.seed),
-        ]
-        if args.force:
-            cmd.append("--force")
         t0 = time.monotonic()
-        rc = run_subprocess(cmd, audit_run_dir)
-        elapsed = time.monotonic() - t0
-        if rc == 0:
-            log(f"{label} STAGE sample_tasks     DONE ({fmt_duration(elapsed)})")
-            update_entry(config, **{stage: "done"})
-        else:
-            log(f"{label} STAGE sample_tasks     FAILED rc={rc}")
+        try:
+            sampled = write_task_sample(bench_cfg, args.max_tasks, seed=args.seed, force=args.force)
+        except (OSError, ValueError, KeyError) as exc:
+            log(f"{label} STAGE sample_tasks     FAILED {exc}")
             update_entry(config, **{stage: "failed"}, overall="failed",
-                         error=f"sample_tasks exit={rc}",
+                         error=f"sample_tasks: {exc}",
                          finished_at=now_iso())
             return False
+        elapsed = time.monotonic() - t0
+        log(f"{label} STAGE sample_tasks     DONE ({len(sampled)} tasks, {fmt_duration(elapsed)})")
+        update_entry(config, **{stage: "done"})
 
     # Stage 3b: audit tasks (batch)
     stage = "stage_audit_tasks"
@@ -335,15 +370,17 @@ def run_pipeline_for_config(
     else:
         log(f"{label} STAGE audit_tasks      RUNNING ({len(pending)} tasks)")
         update_entry(config, **{stage: "running"})
-        cmd = [
-            PYTHON, "-m", "bench_audit", "audit-tasks",
+        cmd = phase_command(
+            "audit-tasks",
             "--config", config,
             "--tasks", *pending,
             "--mode", "static",
-            "--rubric-text", RUBRIC,
-            "--timeout", "1000",
+            "--timeout", str(args.task_timeout),
             "--max-workers", str(args.workers),
-        ]
+            *agent_flags(args),
+        )
+        if args.rubric_text:
+            cmd += ["--rubric-text", args.rubric_text]
         t0 = time.monotonic()
         rc = run_subprocess(cmd, audit_run_dir)
         elapsed = time.monotonic() - t0
@@ -451,8 +488,7 @@ def cmd_status() -> None:
         print()
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+def add_batch_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("-j", dest="parallel", type=int, default=1,
                         help="Number of benchmarks to run concurrently (default 1)")
     parser.add_argument("--workers", type=int, default=1,
@@ -464,11 +500,21 @@ def main() -> int:
     parser.add_argument("--seed", type=int, default=42,
                         help="Sampling seed (default 42)")
     parser.add_argument("--timeout", type=int, default=1200,
-                        help="Timeout for audit-benchmark (default 1200)")
+                        help="Seconds for the audit-benchmark agent call (default 1200)")
+    parser.add_argument("--task-timeout", type=int, default=1000,
+                        help="Seconds per audit-tasks agent call (default 1000)")
+    parser.add_argument("--rubric-text", default=None,
+                        help="Path to a .txt task rubric (default: the task rubric named in rubrics/general_rubric.yaml)")
+    parser.add_argument("--config-dir", default=None,
+                        help="Folder with <domain>/<benchmark>.yaml configs (default: configs/multi_domain_all)")
     parser.add_argument("--domain", default=None,
-                        help="Only run configs under configs/multi_domain_all/<domain>/")
+                        help="Only run configs under <config-dir>/<domain>/")
     parser.add_argument("--config", action="append", default=[],
                         help="Specific config file(s); may be repeated")
+    parser.add_argument("--agent-cli", choices=["claude", "codex", "cursor"], default=None,
+                        help="Use this agent command instead of each config's agent_cli")
+    parser.add_argument("--model", default=None,
+                        help="Use this model instead of each config's model")
     parser.add_argument("--keep", action="store_true",
                         help="Skip cleanup of benchmark_repo_dir/benchmark_data_dir")
     parser.add_argument("--force", action="store_true",
@@ -477,7 +523,14 @@ def main() -> int:
                         help="Print tracker summary and exit")
     parser.add_argument("--reset-tracker", action="store_true",
                         help="Delete the tracker file before starting")
-    args = parser.parse_args()
+
+
+def run_batch(args: argparse.Namespace) -> int:
+    audit_run_dir = str(env_dir("AUDIT_RUN_DIR"))
+    # The stages that run in this process (sampling, cleanup) must see the same folder as the phases.
+    os.environ["AUDIT_RUN_DIR"] = audit_run_dir
+    config_dir = Path(args.config_dir).resolve() if args.config_dir else default_config_dir()
+    configure_tracker(Path(audit_run_dir), config_dir)
 
     if args.status:
         cmd_status()
@@ -487,12 +540,7 @@ def main() -> int:
         TRACKER_PATH.unlink()
         print(f"Removed {TRACKER_PATH}")
 
-    audit_run_dir = os.environ.get(
-        "AUDIT_RUN_DIR",
-        str(ROOT_DIR / "data" / "multi_domain_all"),
-    )
-
-    configs = discover_configs(args.domain, args.config)
+    configs = discover_configs(args.domain, args.config, config_dir)
     if not configs:
         sys.exit("No configs found.")
 
@@ -542,9 +590,5 @@ def main() -> int:
 
     print()
     print(f"=== Finished: {passed} passed, {failed} failed (of {total}) ===")
-    print(f"Run `bash scripts/batch_static_audit_pipeline.sh --status` for the tracker view.")
+    print("Run `bench-audit batch --status` for the tracker view.")
     return 0 if failed == 0 else 1
-
-
-if __name__ == "__main__":
-    sys.exit(main())

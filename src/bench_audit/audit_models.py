@@ -6,7 +6,6 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-
 BENCHMARK_AUDIT_CATEGORIES = {
     "documentation",
     "contamination",
@@ -32,11 +31,6 @@ TASK_AUDIT_CATEGORY_ALIASES = {
     "environment_conflict": "environment",
     "tests": "test_quality",
 }
-TASK_AUDIT_SUBTYPE_PREFIX = {
-    "ambiguity": "A",
-    "environment": "E",
-    "test_quality": "T",
-}
 CONFIDENCE_LEVELS = {"low", "medium", "high"}
 TASK_AUDIT_JUDGMENTS = {"audit_complete", "insufficient_evidence", "agent_error"}
 
@@ -46,7 +40,7 @@ class EvidenceRef:
     note: str
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "EvidenceRef":
+    def from_dict(cls, data: dict[str, Any]) -> EvidenceRef:
         record = cls(
             path=str(data.get("path") or ""),
             note=str(data.get("note") or ""),
@@ -77,7 +71,7 @@ class TaskAuditFinding:
     suggested_fix: str = ""
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "TaskAuditFinding":
+    def from_dict(cls, data: dict[str, Any]) -> TaskAuditFinding:
         category = str(data.get("category") or "")
         category = TASK_AUDIT_CATEGORY_ALIASES.get(category, category)
         finding = cls(
@@ -132,7 +126,7 @@ class TaskAuditRecord:
     findings: list[TaskAuditFinding] = field(default_factory=list)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "TaskAuditRecord":
+    def from_dict(cls, data: dict[str, Any]) -> TaskAuditRecord:
         record = cls(
             task_id=str(data.get("task_id") or ""),
             benchmark_name=str(data.get("benchmark_name") or ""),
@@ -149,7 +143,7 @@ class TaskAuditRecord:
         return record
 
     @classmethod
-    def load_json(cls, path: str | Path) -> "TaskAuditRecord":
+    def load_json(cls, path: str | Path) -> TaskAuditRecord:
         return cls.from_dict(json.loads(Path(path).read_text()))
 
     def validate(self) -> None:
@@ -206,7 +200,7 @@ class BenchmarkAuditFinding:
     suggested_fix: str = ""
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "BenchmarkAuditFinding":
+    def from_dict(cls, data: dict[str, Any]) -> BenchmarkAuditFinding:
         category = str(data.get("category") or "")
         category = BENCHMARK_AUDIT_CATEGORY_ALIASES.get(category, category)
         finding = cls(
@@ -253,7 +247,7 @@ class CategoryVerdict:
     findings: list[BenchmarkAuditFinding] = field(default_factory=list)
 
     @classmethod
-    def from_dict(cls, category: str, data: dict[str, Any]) -> "CategoryVerdict":
+    def from_dict(cls, category: str, data: dict[str, Any]) -> CategoryVerdict:
         category = BENCHMARK_AUDIT_CATEGORY_ALIASES.get(category, category)
         findings_data = data.get("findings", [])
         # Inject category into each finding so the agent doesn't need to repeat it
@@ -309,7 +303,7 @@ class BenchmarkAuditRecord:
         return [f for v in self.category_verdicts.values() for f in v.findings]
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "BenchmarkAuditRecord":
+    def from_dict(cls, data: dict[str, Any]) -> BenchmarkAuditRecord:
         verdicts_raw = data.get("category_verdicts", {})
         verdicts: dict[str, CategoryVerdict] = {}
         for key, val in verdicts_raw.items():
@@ -329,7 +323,7 @@ class BenchmarkAuditRecord:
         return record
 
     @classmethod
-    def load_json(cls, path: str | Path) -> "BenchmarkAuditRecord":
+    def load_json(cls, path: str | Path) -> BenchmarkAuditRecord:
         return cls.from_dict(json.loads(Path(path).read_text()))
 
     def validate(self) -> None:

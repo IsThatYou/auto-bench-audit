@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import os
+import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
 import yaml
+
+from ..paths import checkout_root
 
 
 def generate_trajectories(
@@ -20,8 +24,16 @@ def generate_trajectories(
 ) -> Path:
     """Run Harbor to generate trajectories and emit a collection config."""
 
+    if shutil.which("harbor") is None:
+        raise SystemExit(
+            "the `harbor` command is not installed. Install it with `uv sync --extra harbor` "
+            "(or `pip install harbor`), then run this command again."
+        )
+
     harbor_data = yaml.safe_load(harbor_config.read_text())
-    harbor_jobs_dir = Path(harbor_data["jobs_dir"])
+    # Harbor expands ${VAR} in its own config. Expand it here too, so that the
+    # folder we watch for new runs is the folder Harbor writes to.
+    harbor_jobs_dir = Path(os.path.expandvars(str(harbor_data["jobs_dir"]))).expanduser()
 
     # Patch dataset fields if overrides provided.
     if download_dir and Path(download_dir).is_dir():
@@ -43,6 +55,7 @@ def generate_trajectories(
 
     # Write patched config to a temp file.
     tmp_fd, tmp_path = tempfile.mkstemp(suffix=".yaml")
+    os.close(tmp_fd)  # only the path is needed
     tmp_config = Path(tmp_path)
     try:
         tmp_config.write_text(yaml.dump(harbor_data, default_flow_style=False, sort_keys=False))
@@ -86,8 +99,10 @@ def generate_trajectories(
         "jobs_type": jobs_type,
     }
 
-    repo_root = Path(__file__).resolve().parents[3]
-    out_dir = repo_root / "configs" / "harbor"
+    # In a source checkout the config goes to configs/harbor/ (ignored by git).
+    # An installed package has no configs folder, so it goes to the current folder.
+    root = checkout_root()
+    out_dir = root / "configs" / "harbor" if root else Path.cwd()
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"collection_{name}.yaml"
     out_path.write_text(yaml.dump(collection, default_flow_style=False, sort_keys=False))

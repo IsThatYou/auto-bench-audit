@@ -1,17 +1,38 @@
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import yaml
 
-from .evidence_collection import ArtifactManifest, EvalConfig, EvidenceCollectionConfig, TaskConfig, TaskEntry
+from .evidence_collection import ArtifactManifest, EvalConfig, TaskConfig
 from .evidence_collection.runner import TaskConfigDirResolver
+from .paths import build_agent_add_dirs, resolve_output_root, resource_root
 
-PHASE_ORDER = ["benchmark_audit", "evidence_collection", "per_task_evaluation"]
+PHASE_ORDER = ["benchmark_audit", "evidence_collection", "task_audit"]
+# Older phase names. Rubric files and --start-phase / --end-phase still accept them.
+PHASE_ALIASES = {"per_task_evaluation": "task_audit"}
 TASK_FILTERS = {"failed_or_mixed", "all"}
+
+__all__ = [
+    "PHASE_ALIASES",
+    "PHASE_ORDER",
+    "CollectionState",
+    "GeneralRubric",
+    "PhaseDefinition",
+    "benchmark_audit_path",
+    "build_agent_add_dirs",
+    "default_general_rubric_path",
+    "load_collection_state",
+    "load_general_rubric",
+    "load_yaml_mapping",
+    "normalize_phase",
+    "resolve_output_root",
+    "resolve_phase_sequence",
+    "resolve_repo_path",
+    "task_audit_dir",
+]
 
 
 @dataclass(slots=True)
@@ -24,14 +45,14 @@ class PhaseDefinition:
     requires: list[str] = field(default_factory=list)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "PhaseDefinition":
+    def from_dict(cls, data: dict[str, Any]) -> PhaseDefinition:
         phase = cls(
             enabled=bool(data.get("enabled", False)),
             rubric=_optional_str(data.get("rubric")),
             output_dir=_optional_str(data.get("output_dir")),
             output_file=_optional_str(data.get("output_file")),
             task_filter=_optional_str(data.get("task_filter")),
-            requires=[str(item) for item in data.get("requires", [])],
+            requires=[normalize_phase(str(item)) for item in data.get("requires", [])],
         )
         phase.validate()
         return phase
@@ -51,10 +72,10 @@ class GeneralRubric:
     phases: dict[str, PhaseDefinition]
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "GeneralRubric":
+    def from_dict(cls, data: dict[str, Any]) -> GeneralRubric:
         version = str(data.get("version") or "")
         phases = {
-            str(name): PhaseDefinition.from_dict(phase_data)
+            normalize_phase(str(name)): PhaseDefinition.from_dict(phase_data)
             for name, phase_data in (data.get("phases") or {}).items()
         }
         rubric = cls(version=version, phases=phases)
@@ -74,9 +95,15 @@ class GeneralRubric:
                     raise ValueError(f"phase {phase_name} requires unknown phase {requirement}")
 
     def phase(self, phase_name: str) -> PhaseDefinition:
+        phase_name = normalize_phase(phase_name)
         if phase_name not in self.phases:
             raise ValueError(f"unknown phase: {phase_name}")
         return self.phases[phase_name]
+
+
+def normalize_phase(name: str) -> str:
+    """Map an older phase name to the current one."""
+    return PHASE_ALIASES.get(name, name)
 
 
 @dataclass(slots=True)
@@ -87,69 +114,17 @@ class CollectionState:
     eval_configs: dict[str, list[EvalConfig]]
 
 
-def repo_root() -> Path:
-    return Path(__file__).resolve().parents[2]
-
-
-def resolve_output_root(config: EvidenceCollectionConfig) -> Path:
-    audit_run_dir = os.environ.get("AUDIT_RUN_DIR", "").strip()
-    if not audit_run_dir:
-        raise ValueError("AUDIT_RUN_DIR must be set")
-    return (
-        Path(audit_run_dir).resolve()
-        / _sanitize_dir_part(config.benchmark_type)
-        / _build_output_dir_name(config)
-    ).resolve()
-
-
-def build_agent_add_dirs(config: EvidenceCollectionConfig, output_root: Path) -> list[str]:
-    candidates = [str(output_root)]
-    if config.benchmark_data_dir:
-        candidates.append(str(Path(config.benchmark_data_dir).resolve()))
-    if config.source_data_dir:
-        candidates.append(str(Path(config.source_data_dir).resolve()))
-    if config.runs_dir:
-        candidates.append(str(Path(config.runs_dir).resolve()))
-    if config.benchmark_repo_dir:
-        candidates.append(str(Path(config.benchmark_repo_dir).resolve()))
-    add_dirs: list[str] = []
-    for candidate in candidates:
-        if not candidate:
-            continue
-        resolved = str(Path(candidate).resolve())
-        if resolved not in add_dirs:
-            add_dirs.append(resolved)
-    return add_dirs
-
-
 def resolve_repo_path(path: str | None) -> Path:
     if not path:
         raise ValueError("rubric path is not configured")
     candidate = Path(path)
     if not candidate.is_absolute():
-        candidate = repo_root() / candidate
+        candidate = resource_root() / candidate
     return candidate.resolve()
 
 
-def _build_output_dir_name(config: EvidenceCollectionConfig) -> str:
-    return "__".join(
-        [
-            _sanitize_dir_part(config.benchmark_name),
-            _sanitize_dir_part(config.output_subdir),
-            _sanitize_dir_part(config.job_type),
-        ]
-    )
-
-
-def _sanitize_dir_part(value: str) -> str:
-    sanitized = value.strip().replace(os.sep, "-").replace(" ", "-")
-    while "--" in sanitized:
-        sanitized = sanitized.replace("--", "-")
-    return sanitized or "run"
-
-
 def default_general_rubric_path() -> Path:
-    return repo_root() / "rubrics" / "general_rubric.yaml"
+    return resource_root() / "rubrics" / "general_rubric.yaml"
 
 
 def load_general_rubric(path: str | Path | None = None) -> GeneralRubric:
@@ -171,6 +146,7 @@ def resolve_phase_sequence(
     start_phase: str,
     end_phase: str,
 ) -> list[str]:
+    start_phase, end_phase = normalize_phase(start_phase), normalize_phase(end_phase)
     if start_phase not in PHASE_ORDER:
         raise ValueError(f"unsupported start phase: {start_phase}")
     if end_phase not in PHASE_ORDER:
@@ -220,9 +196,9 @@ def benchmark_audit_path(output_root: str | Path, general_rubric: GeneralRubric)
 
 
 def task_audit_dir(output_root: str | Path, general_rubric: GeneralRubric, audit_mode: str = "trajectory") -> Path:
-    phase = general_rubric.phase("per_task_evaluation")
+    phase = general_rubric.phase("task_audit")
     if not phase.output_dir:
-        raise ValueError("per_task_evaluation.output_dir is not configured")
+        raise ValueError("task_audit.output_dir is not configured")
     dirname = phase.output_dir if audit_mode == "trajectory" else f"{phase.output_dir}_static"
     return Path(output_root).resolve() / dirname
 
@@ -232,5 +208,3 @@ def _optional_str(value: Any) -> str | None:
         return None
     text = str(value).strip()
     return text or None
-
-

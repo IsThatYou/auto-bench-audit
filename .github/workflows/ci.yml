@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # benchmarks/ holds about 680 MB of paper data that the code does not read.
+          sparse-checkout: |
+            .github
+            configs
+            rubrics
+            scripts
+            src
+            tests
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync --locked
+      - run: uv run ruff check
+      - run: uv run pytest -q
+      - name: Installed package works without the repo
+        run: |
+          uv build --wheel --out-dir dist
+          uv venv /tmp/wheel-env
+          uv pip install --python /tmp/wheel-env/bin/python dist/*.whl
+          cd /tmp
+          /tmp/wheel-env/bin/bench-audit --help
+          /tmp/wheel-env/bin/python -c "from bench_audit.audit_protocol import load_general_rubric, resolve_repo_path as r; g = load_general_rubric(); assert r(g.phase('task_audit').rubric).is_file()"

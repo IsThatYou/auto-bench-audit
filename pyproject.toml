@@ -5,21 +5,51 @@ build-backend = "hatchling.build"
 [project]
 name = "bench-audit"
 version = "0.1.0"
-description = "Per-task and benchmark-level audit tooling for coding benchmarks"
+description = "Automated audits of LLM and agent benchmarks: unclear tasks, broken environments, and wrong graders"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.12"
 dependencies = [
-    "harbor>=0.3.0",
-    "jinja2>=3.1",
-    "openai>=2.30.0",
-    "openreview-py>=2.0.1",
-    "pymupdf>=1.27.2.2",
     "pyyaml>=6.0",
-    "tqdm>=4.67.3",
 ]
+
+[project.optional-dependencies]
+# Only for `bench-audit generate`, which records agent runs with the `harbor` command.
+harbor = ["harbor>=0.3.0"]
+
+[project.urls]
+Homepage = "https://autobenchaudit.com"
+Paper = "https://arxiv.org/abs/2605.26079"
+Repository = "https://github.com/IsThatYou/auto-bench-audit"
 
 [project.scripts]
 bench-audit = "bench_audit.cli:main"
 
+[dependency-groups]
+dev = ["pytest>=8.0", "ruff>=0.8"]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/bench_audit"]
+
+# Ship the rubrics inside the package, so an installed copy works without the repo.
+[tool.hatch.build.targets.wheel.force-include]
+"rubrics" = "bench_audit/rubrics"
+
+# Keep the paper data in benchmarks/ (about 680 MB) out of the source archive.
+[tool.hatch.build.targets.sdist]
+include = ["/src", "/rubrics", "/tests", "/README.md", "/LICENSE", "/pyproject.toml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 160
+# benchmarks/ holds paper-analysis scripts that are not part of the package.
+extend-exclude = ["benchmarks"]
+target-version = "py312"
+
+[tool.ruff.lint]
+# E/W: style, F: unused names and undefined names, I: import order, UP: old syntax, B: likely bugs
+select = ["E", "W", "F", "I", "UP", "B"]
+ignore = ["E501"]  # long lines: the prompts are long on purpose

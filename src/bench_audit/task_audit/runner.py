@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Any
 
 from ..agent_cli import AgentCliError, build_agent_request, invoke_structured
-from ..progress import ProgressTracker
 from ..audit_models import TaskAuditRecord, parse_agent_json_object, task_audit_record_json_schema
 from ..audit_protocol import (
     build_agent_add_dirs,
@@ -15,7 +14,9 @@ from ..audit_protocol import (
     resolve_repo_path,
     task_audit_dir,
 )
-from ..evidence_collection import EvidenceCollectionConfig, TaskConfig
+from ..config import BenchmarkConfig
+from ..evidence_collection import TaskConfig
+from ..progress import ProgressTracker
 from ..report import render_audit_report
 from .context import EvalArtifactPaths, eval_artifact_paths, select_eval_configs, select_task_configs
 from .prompt import render_static_task_audit_prompt, render_task_audit_prompt
@@ -23,19 +24,19 @@ from .prompt import render_static_task_audit_prompt, render_task_audit_prompt
 AUDIT_MODES = {"trajectory", "static"}
 
 
-def _resolve_audit_mode(audit_mode: str | None, config: EvidenceCollectionConfig) -> str:
+def _resolve_audit_mode(audit_mode: str | None, config: BenchmarkConfig) -> str:
     """Resolve audit mode: explicit value, or auto-detect from benchmark type."""
     if audit_mode is not None:
         if audit_mode not in AUDIT_MODES:
             raise ValueError(f"unsupported audit mode: {audit_mode}")
         return audit_mode
-    if config.benchmark_type == "neurips":
+    if config.is_static:
         return "static"
     return "trajectory"
 
 
 def audit_tasks(
-    config: EvidenceCollectionConfig,
+    config: BenchmarkConfig,
     general_rubric_path: str | Path | None = None,
     rubric_text_path: str | Path | None = None,
     task_ids: list[str] | None = None,
@@ -51,7 +52,7 @@ def audit_tasks(
     mode = _resolve_audit_mode(audit_mode, config)
     output_root = resolve_output_root(config)
     general_rubric = load_general_rubric(general_rubric_path)
-    phase = general_rubric.phase("per_task_evaluation")
+    phase = general_rubric.phase("task_audit")
     if rubric_text_path:
         rubric_txt_path = Path(rubric_text_path).resolve()
     else:
@@ -61,8 +62,9 @@ def audit_tasks(
     rubric_text = rubric_txt_path.read_text()
     collection = load_collection_state(output_root)
 
-    # In static mode, default to auditing all tasks (no pass/fail to filter on).
-    task_filter = phase.task_filter or ("all" if mode == "static" else "failed_or_mixed")
+    # A static audit has no pass/fail results, so there is nothing to filter on.
+    # The rubric's task_filter (failed_or_mixed) applies to trajectory audits only.
+    task_filter = "all" if mode == "static" else (phase.task_filter or "failed_or_mixed")
     selected_tasks = select_task_configs(
         list(collection.task_configs.values()),
         task_filter=task_filter,
@@ -222,7 +224,7 @@ def _run_single_static_task(
     task_config: TaskConfig,
     rubric_text: str,
     rubric_path: str,
-    config: EvidenceCollectionConfig,
+    config: BenchmarkConfig,
     timeout: int | None = None,
     agent_cli: str = "claude",
     conversation_log_path: Path | None = None,

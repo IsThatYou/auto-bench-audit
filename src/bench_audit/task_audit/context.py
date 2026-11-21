@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import random
 from dataclasses import dataclass
 
 from ..evidence_collection import EvalConfig, TaskConfig
-
+from .sampling import sample_sorted
 
 # Whitelist of eval-level fields shown in audit prompts.
 _EVAL_PROMPT_FIELDS = ("eval_id", "status", "metrics_path", "test_output_path", "prediction_path", "trajectory_path")
@@ -41,11 +40,8 @@ def select_task_configs(
         raise ValueError(f"unsupported task filter for task evaluation: {task_filter}")
     else:
         selected = [task for task in ordered if task.status == "failed" or _is_mixed(task)]
-    if sample_n is not None and len(selected) > sample_n:
-        selected = sorted(
-            random.Random(sample_seed).sample(selected, sample_n),
-            key=lambda task: task.task_id,
-        )
+    if sample_n is not None:
+        selected = sample_sorted(selected, sample_n, sample_seed, key=lambda task: task.task_id)
     return selected
 
 

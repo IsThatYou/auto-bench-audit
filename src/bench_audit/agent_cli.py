@@ -19,6 +19,23 @@ class AgentCliError(RuntimeError):
 
 _DEBUG_COMMAND_LOCK = Lock()
 
+# agent_cli value -> the command that must be on PATH
+AGENT_BINARIES = {"claude": "claude", "cursor": "cursor-agent", "codex": "codex"}
+
+
+def require_agent_binary(agent_cli: str) -> str:
+    """Return the path of the agent command, or raise a clear error before any work starts."""
+    if agent_cli not in AGENT_BINARIES:
+        raise AgentCliError(f"unsupported agent_cli: {agent_cli} (use one of: {', '.join(AGENT_BINARIES)})")
+    binary = AGENT_BINARIES[agent_cli]
+    found = shutil.which(binary)
+    if found is None:
+        raise AgentCliError(
+            f"the `{binary}` command is not installed or not on PATH. "
+            f"bench-audit runs the {agent_cli} command-line agent as a subprocess; install it and sign in first."
+        )
+    return found
+
 
 @dataclass(slots=True)
 class AgentRequest:
@@ -36,7 +53,7 @@ def build_agent_request(
 ) -> AgentRequest:
     if not agent_cli:
         raise AgentCliError("agent_cli must be configured; fallback generation has been removed")
-    if agent_cli not in {"claude", "cursor", "codex"}:
+    if agent_cli not in AGENT_BINARIES:
         raise AgentCliError(f"unsupported agent_cli: {agent_cli}")
     return AgentRequest(agent_cli=agent_cli, model=model, add_dirs=list(add_dirs or []), api_key_env=api_key_env)
 
@@ -178,7 +195,7 @@ def _run_command(
         if stdout:
             print(f"[bench-audit] {agent_cli} timed out after {timeout}s but produced output; recovering", file=sys.stderr)
         else:
-            raise AgentCliError(f"{agent_cli} timed out after {timeout}s")
+            raise AgentCliError(f"{agent_cli} timed out after {timeout}s") from None
     else:
         stdout = (stdout or "").strip()
         stderr = (stderr or "").strip()

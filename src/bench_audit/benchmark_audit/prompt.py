@@ -4,7 +4,7 @@ import json
 from typing import Any
 
 from ..audit_models import BENCHMARK_AUDIT_CATEGORIES
-from ..evidence_collection import EvidenceCollectionConfig
+from ..config import BenchmarkConfig
 
 _PREAMBLE = """\
 You are auditing a benchmark as a whole to assess its quality, methodology, \
@@ -68,7 +68,7 @@ _CURSOR_SCHEMA = {
 
 
 def render_benchmark_audit_prompt(
-    config: EvidenceCollectionConfig,
+    config: BenchmarkConfig,
     rubric_text: str,
     agent_cli: str = "claude",
 ) -> str:

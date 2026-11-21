@@ -13,17 +13,16 @@ from ..audit_models import (
 )
 from ..audit_protocol import (
     benchmark_audit_path,
-    build_agent_add_dirs,
     load_general_rubric,
     resolve_output_root,
     resolve_repo_path,
 )
-from ..evidence_collection import EvidenceCollectionConfig
+from ..config import BenchmarkConfig
 from .prompt import render_benchmark_audit_prompt
 
 
 def audit_benchmark(
-    config: EvidenceCollectionConfig,
+    config: BenchmarkConfig,
     general_rubric_path: str | Path | None = None,
     rubric_text_path: str | Path | None = None,
     force: bool = False,
@@ -87,7 +86,7 @@ def audit_benchmark(
 
 def _run_benchmark_audit(
     request: Any,
-    config: EvidenceCollectionConfig,
+    config: BenchmarkConfig,
     rubric_text: str,
     rubric_path: str,
     timeout: int | None = None,
@@ -120,7 +119,7 @@ def _run_benchmark_audit(
         )
 
 
-def _build_benchmark_add_dirs(config: EvidenceCollectionConfig, output_root: Path) -> list[str]:
+def _build_benchmark_add_dirs(config: BenchmarkConfig, output_root: Path) -> list[str]:
     candidates = [str(output_root)]
     if config.benchmark_repo_dir:
         candidates.append(str(Path(config.benchmark_repo_dir).resolve()))

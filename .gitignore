@@ -28,6 +28,14 @@ configs/**/tracking.json
 data/
 logs/
 
+# Generated configs (written by `bench-audit generate` and by old versions of scripts/audit_one.sh)
+configs/quick/
+configs/harbor/collection_*.yaml
+
+# Test and tool caches
+.pytest_cache/
+.ruff_cache/
+
 # Files exceeding GitHub's 100 MB per-file limit (see benchmarks/benchguard/bix_verified50/README.md for the bix_verified50 list)
 benchmarks/benchguard/bix_verified50/CapsuleFolder-37829656-f147-5fd2-8f10-40fa15cfdf03.zip
 benchmarks/benchguard/bix_verified50/CapsuleFolder-d38392ec-84b8-485d-ab02-b8788e6f1f43.zip
