@@ -289,6 +289,23 @@ def test_timeout_after_the_final_answer_uses_the_answer(tmp_path: Path):
     assert agent_cli._extract_text_output("claude", stdout) == "the answer"
 
 
+def test_failed_process_gives_the_reason_from_its_last_event_and_keeps_the_log(tmp_path: Path):
+    """The claude command prints the whole conversation. The reason is in the last event, not at the start."""
+    events = [{"type": "system", "subtype": "init", "tools": ["Bash"] * 50}, {"type": "result", "is_error": True, "result": "Prompt is too long"}]
+    code = f"import sys; print({chr(10).join(json.dumps(event) for event in events)!r}); sys.exit(1)"
+    log = tmp_path / "conversation.json"
+    with pytest.raises(AgentCliError) as error:
+        agent_cli._run_command("claude", [sys.executable, "-c", code], conversation_log_path=log)
+    assert str(error.value) == "claude failed while generating output: Prompt is too long"
+    assert "Prompt is too long" in log.read_text()
+
+
+def test_failed_process_without_events_gives_its_error_output():
+    code = "import sys; print('no such model', file=sys.stderr); sys.exit(2)"
+    with pytest.raises(AgentCliError, match="failed while generating output: no such model"):
+        agent_cli._run_command("claude", [sys.executable, "-c", code])
+
+
 def test_failed_log_is_set_aside_under_a_new_name_each_time(tmp_path: Path):
     log = tmp_path / "conversations" / "task.json"
     log.parent.mkdir()

@@ -133,6 +133,7 @@ def audit_tasks(
             return _run_single_static_task(
                 request, task_config, rubric_text, str(rubric_txt_path), config,
                 timeout=timeout, agent_cli=request.agent_cli,
+                long_text_dir=output_dir / "long_inputs" / task_config.task_id,
                 conversation_log_path=conversation_log_path,
             )
         eval_configs = collection.eval_configs.get(task_config.task_id, [])
@@ -262,10 +263,13 @@ def _run_single_static_task(
     timeout: int | None = None,
     agent_cli: str = "claude",
     conversation_log_path: Path | None = None,
+    long_text_dir: Path | None = None,
 ) -> TaskAuditRecord:
     task_status = "unscored"  # static mode ignores eval results
     try:
-        prompt = render_static_task_audit_prompt(task_config, rubric_text, config, agent_cli=agent_cli)
+        prompt = render_static_task_audit_prompt(
+            task_config, rubric_text, config, agent_cli=agent_cli, long_text_dir=long_text_dir
+        )
         response = invoke_structured(
             request,
             prompt,
