@@ -12,7 +12,7 @@ from .benchmark_audit import audit_benchmark
 from .config import BenchmarkConfig, load_benchmark_config
 from .evidence_collection import DEFAULT_COLLECT_TIMEOUT, collect_evidence
 from .paths import checkout_root, skill_path
-from .quick_audit import run_quick_audit
+from .quick_audit import DEFAULT_MODELS, run_quick_audit
 from .task_audit import audit_tasks
 from .trajectory_generation import generate_trajectories
 
@@ -85,7 +85,7 @@ def build_parser() -> argparse.ArgumentParser:
     quick.add_argument("--sample-seed", type=int, default=42, help="Random seed for task sampling (default: 42)")
     quick.add_argument("--domain", default="misc", help="Domain label stored in the config (default: misc)")
     quick.add_argument("--agent-cli", choices=AGENT_CHOICES, default="claude", help="Agent command to run (default: claude)")
-    quick.add_argument("--model", help="Model id passed to the agent (default for claude: claude-opus-4-7)")
+    quick.add_argument("--model", help=f"Model id passed to the agent (default for claude: {DEFAULT_MODELS['claude']}; codex and cursor use their own default)")
     quick.add_argument("--skip-benchmark-audit", action="store_true", help="Skip phase 1, the benchmark-level audit")
     quick.add_argument("--max-workers", type=int, default=1, help="Tasks to audit in parallel (default: 1)")
     quick.add_argument("--timeout", type=int, default=800, help="Seconds per audit agent call (default: 800)")

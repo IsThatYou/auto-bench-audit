@@ -27,7 +27,7 @@ Your part is to drive the `bench-audit` command for the user and then explain wh
 Do not start an audit until the user has agreed to these three points in this conversation. They are the user's risks to accept, not yours.
 
 1. **Permission checks are off.** The audit agents run as `claude -p --dangerously-skip-permissions` or `codex exec --yolo`, so they can run any command without asking. They are told to read the benchmark and to write only their results, and for a local folder they work on a copy. For a benchmark repository that the user does not trust, recommend a container or a virtual machine.
-2. **It costs money or subscription usage.** An audit of N tasks makes N + 2 agent calls (plus one more attempt for each call that fails). Each call reads files and can run for up to 800 seconds; the call that lists the tasks can run for up to an hour. Say which agent and model will be used (for `claude`, `bench-audit` uses `claude-opus-4-7` unless you pass `--model`).
+2. **It costs money or subscription usage.** An audit of N tasks makes N + 2 agent calls (plus one more attempt for each call that fails). Each call reads files and can run for up to 800 seconds; the call that lists the tasks can run for up to an hour. Say which agent and model will be used (for `claude`, `bench-audit` uses `claude-opus-5-5` unless you pass `--model`).
 3. **It takes a while.** Usually tens of minutes for a few tasks.
 
 Propose `--sample-n 5` for a first run unless the user asked for something else. A sample finds the kinds of defects a benchmark has; it does not clear the tasks that were not sampled.

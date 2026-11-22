@@ -23,7 +23,10 @@ from .evidence_collection import DEFAULT_COLLECT_TIMEOUT, collect_evidence
 from .paths import env_dir, resolve_output_root
 from .task_audit import audit_tasks
 
-DEFAULT_MODELS = {"claude": "claude-opus-4-7"}
+# The model that `bench-audit audit` passes to the agent when --model is not given.
+# codex and cursor have no entry: they use their own default model.
+# The 143 configs of the paper name claude-opus-4-7 themselves, so this does not change them.
+DEFAULT_MODELS = {"claude": "claude-opus-5-5"}
 
 # Folders that are not part of a benchmark and can be very large. A copy leaves them out.
 COPY_SKIP = {".venv", "venv", "node_modules", "__pycache__", ".mypy_cache", ".pytest_cache", ".ruff_cache", ".tox", ".bench-audit"}
