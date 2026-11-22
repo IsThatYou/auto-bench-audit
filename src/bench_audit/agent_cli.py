@@ -207,7 +207,9 @@ def _run_command(
         stdout = (stdout or "").strip()
         stderr = (stderr or "").strip()
         if proc.returncode != 0:
-            detail = stderr or stdout or f"exit code {proc.returncode}"
+            # Keep the log: it shows what the agent did before it failed.
+            _write_conversation_log(conversation_log_path, stdout)
+            detail = _failure_detail(agent_cli, stdout, stderr, proc.returncode)
             raise AgentCliError(f"{agent_cli} failed while generating output: {detail}")
     if not stdout:
         raise AgentCliError(f"{agent_cli} returned empty output")
@@ -215,8 +217,23 @@ def _run_command(
     return stdout
 
 
+def _failure_detail(agent_cli: str, stdout: str, stderr: str, returncode: int) -> str:
+    """Say in a few words why the agent process failed.
+
+    The claude command prints its whole conversation to stdout, one event per
+    line. The reason (for example "Prompt is too long") is in the last
+    ``result`` event, not at the start of the output.
+    """
+    if agent_cli == "claude":
+        for item in reversed(_iter_jsonl_objects(stdout)):
+            reason = item.get("result")
+            if item.get("type") == "result" and isinstance(reason, str) and reason.strip():
+                return reason.strip()[-2000:]
+    return (stderr or stdout)[-2000:] or f"exit code {returncode}"
+
+
 def _write_conversation_log(conversation_log_path: Path | None, stdout: str) -> None:
-    if conversation_log_path is not None:
+    if conversation_log_path is not None and stdout:
         conversation_log_path.parent.mkdir(parents=True, exist_ok=True)
         conversation_log_path.write_text(stdout)
 

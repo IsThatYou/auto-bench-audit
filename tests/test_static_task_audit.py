@@ -14,6 +14,7 @@ from bench_audit.config import load_benchmark_config
 from bench_audit.evidence_collection import ArtifactManifest, TaskConfig, TaskEntry
 from bench_audit.paths import resolve_output_root
 from bench_audit.task_audit import audit_tasks
+from bench_audit.task_audit import prompt as task_prompt
 from bench_audit.task_audit import runner as task_runner
 
 from .conftest import write_config
@@ -84,3 +85,32 @@ def test_static_audit_sample_and_resume(tmp_path: Path, fake_agent: list[str]):
     second = audit_tasks(config, sample_n=2, sample_seed=1)
     assert second["skipped_tasks"] == first["selected_tasks"]
     assert len(fake_agent) == 2  # nothing ran again
+
+
+# --- a very long reference answer ---------------------------------------------------------------
+
+
+def set_reference_answer(output_root: Path, task_id: str, text: str) -> None:
+    path = output_root / "task_configs" / task_id / "task_config.json"
+    path.write_text(json.dumps({**json.loads(path.read_text()), "reference_answer": text}))
+
+
+def test_very_long_reference_answer_goes_to_a_file_and_the_prompt_stays_small(tmp_path: Path, fake_agent: list[str]):
+    """One collector put 50,000 test names (6 MB) into reference_answer, and the agent stopped with "Prompt is too long"."""
+    config, output_root = make_collection(tmp_path)
+    limit = task_prompt.MAX_INLINE_CHARS
+    long_answer = "START " + "x" * (3 * limit) + " END"
+    set_reference_answer(output_root, "task-a", long_answer)
+    set_reference_answer(output_root, "task-b", "42")
+
+    audit_tasks(config, audit_mode="static", task_ids=["task-a", "task-b"])
+    prompt_a, prompt_b = sorted(fake_agent, key=len, reverse=True)
+
+    full_text_file = output_root / "task_audits_static" / "long_inputs" / "task-a" / "reference_answer.txt"
+    assert full_text_file.read_text() == long_answer
+    assert str(full_text_file) in prompt_a and "START" in prompt_a and "END" not in prompt_a
+    assert f"{len(long_answer):,} characters" in prompt_a
+    assert len(prompt_a) < len(prompt_b) + limit + 1000
+
+    assert '"reference_answer": "42"' in prompt_b and "bench-audit note" not in prompt_b
+    assert not (full_text_file.parent.parent / "task-b").exists()

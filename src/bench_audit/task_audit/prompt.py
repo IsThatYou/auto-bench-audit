@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict
+from pathlib import Path
 from typing import Any
 
 from ..config import BenchmarkConfig
@@ -211,11 +212,37 @@ those as required reading — open and read every one before drawing \
 conclusions."""
 
 
+# A text field longer than this does not go into the prompt in full. One evidence collector put the names of
+# 50,000 tests into `reference_answer` (6 MB), and the agent then stopped with "Prompt is too long".
+MAX_INLINE_CHARS = 100_000
+
+
+def inline_or_file(field: str, text: str | None, long_text_dir: Path | None) -> str | None:
+    """Return ``text`` for the prompt. Cut a very long text and save all of it to a file that the agent can read."""
+    if text is None or len(text) <= MAX_INLINE_CHARS:
+        return text
+    if long_text_dir is None:
+        where = "The rest is not available."
+    else:
+        long_text_dir.mkdir(parents=True, exist_ok=True)
+        full_path = long_text_dir / f"{field}.txt"
+        full_path.write_text(text)
+        where = (
+            f"The full text is in the file {full_path}. Before you conclude anything about `{field}`, read the "
+            "parts of that file that you need (search it, or read it in line ranges)."
+        )
+    return (
+        f"{text[:MAX_INLINE_CHARS]}\n\n[bench-audit note: `{field}` is cut here. It has {len(text):,} characters "
+        f"and only the first {MAX_INLINE_CHARS:,} are shown. {where}]"
+    )
+
+
 def render_static_task_audit_prompt(
     task_config: TaskConfig,
     rubric_text: str,
     config: BenchmarkConfig,
     agent_cli: str = "claude",
+    long_text_dir: Path | None = None,
 ) -> str:
     parts = [_STATIC_PREAMBLE]
     parts.append(_STATIC_WORKFLOW)
@@ -228,8 +255,8 @@ def render_static_task_audit_prompt(
 
     prompt_context: dict[str, Any] = {
         "task_id": task_config.task_id,
-        "instruction_text": task_config.instruction_text,
-        "reference_answer": task_config.reference_answer,
+        "instruction_text": inline_or_file("instruction_text", task_config.instruction_text, long_text_dir),
+        "reference_answer": inline_or_file("reference_answer", task_config.reference_answer, long_text_dir),
     }
     # Add available task-level paths and audit notes
     for key in ("solution_ref", "tests_ref", "task_bundle_path", "audit_notes"):
