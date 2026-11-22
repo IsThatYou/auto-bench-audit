@@ -8,9 +8,11 @@ from ..agent_cli import AgentCliError, build_agent_request, invoke_structured, s
 from ..audit_models import (
     AGENT_ERROR,
     BENCHMARK_AUDIT_CATEGORIES,
+    FAILED_MARK,
     BenchmarkAuditRecord,
     CategoryVerdict,
     benchmark_audit_record_json_schema,
+    is_failed_call,
     parse_agent_json_object,
     record_is_done,
 )
@@ -83,12 +85,12 @@ def audit_benchmark(
             timeout=timeout,
             conversation_log_path=conversation_log_path,
         )
-        if record.overall_judgment != AGENT_ERROR:
+        if not is_failed_call(record.overall_judgment, record.summary):
             break
         print(f"[bench-audit] benchmark audit attempt {attempt} of {attempts} failed: {record.summary}", file=sys.stderr)
         if attempt < attempts:
             set_aside_failed_log(conversation_log_path)
-    failed = record.overall_judgment == AGENT_ERROR
+    failed = is_failed_call(record.overall_judgment, record.summary)
     if failed:
         print(
             f"[bench-audit] The benchmark audit failed and its record says agent_error ({target_path}).\n"
@@ -130,7 +132,7 @@ def _run_benchmark_audit(
         payload["rubric_path"] = rubric_path
         return BenchmarkAuditRecord.from_dict(payload)
     except (AgentCliError, ValueError, TypeError, KeyError) as exc:
-        error_msg = f"Benchmark audit failed before a valid record was produced: {exc}"
+        error_msg = f"Benchmark audit {FAILED_MARK}: {exc}"
         error_verdicts = {
             cat: CategoryVerdict(category=cat, severity=0, rationale=error_msg)
             for cat in BENCHMARK_AUDIT_CATEGORIES

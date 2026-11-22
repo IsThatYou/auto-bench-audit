@@ -17,6 +17,7 @@ from bench_audit.task_audit.sampling import sample_sorted, write_task_sample
 from .conftest import write_collection, write_config
 
 TASK_IDS = [f"task-{i:02d}" for i in range(10)]
+FAILED_SUMMARY = "Static task audit failed before a valid record was produced: claude timed out after 800s"
 
 
 @pytest.mark.parametrize(("n", "seed"), [(3, 42), (5, 7), (9, 0)])
@@ -51,7 +52,7 @@ class FakePhases:
         root.mkdir(parents=True, exist_ok=True)
         if phase == "audit-benchmark":
             judgment = "agent_error" if self.benchmark_agent_error else "audit_complete"
-            (root / "benchmark_audit.json").write_text(json.dumps({"overall_judgment": judgment}))
+            (root / "benchmark_audit.json").write_text(json.dumps({"overall_judgment": judgment, "summary": FAILED_SUMMARY if self.benchmark_agent_error else "ok"}))
             (root / "benchmark_audit_report.md").write_text("report")
             return EXIT_AGENT_ERRORS if self.benchmark_agent_error else 0
         if phase == "collect-evidence":
@@ -62,7 +63,7 @@ class FakePhases:
             failed = [task_id for task_id in tasks if task_id in self.task_agent_errors]
             for task_id in tasks:
                 judgment = "agent_error" if task_id in failed else "audit_complete"
-                (root / "task_audits_static" / f"{task_id}.json").write_text(json.dumps({"overall_judgment": judgment}))
+                (root / "task_audits_static" / f"{task_id}.json").write_text(json.dumps({"overall_judgment": judgment, "summary": FAILED_SUMMARY if task_id in failed else "ok"}))
             return EXIT_AGENT_ERRORS if failed else 0
         return 0
 

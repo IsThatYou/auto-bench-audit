@@ -77,8 +77,11 @@ def test_only_a_valid_record_that_is_not_an_agent_error_is_done(tmp_path: Path):
     assert not record_is_done(path)  # missing
     path.write_text("{ not json")
     assert not record_is_done(path)
-    path.write_text(json.dumps({"overall_judgment": "agent_error"}))
+    path.write_text(json.dumps({"overall_judgment": "agent_error", "summary": "Task audit failed before a valid record was produced: timeout"}))
     assert not record_is_done(path)
+    # The auditor's own answer can be agent_error with a normal verdict. That is a finished record.
+    path.write_text(json.dumps({"overall_judgment": "agent_error", "summary": "The task files could not be opened."}))
+    assert record_is_done(path)
     path.write_text(json.dumps({"overall_judgment": "insufficient_evidence"}))
     assert record_is_done(path)
 
@@ -138,7 +141,7 @@ def test_only_the_failed_task_runs_again(config, monkeypatch: pytest.MonkeyPatch
     audit_tasks(config)
     record_path = output_root / "task_audits_static" / "task-b.json"
     record = json.loads(record_path.read_text())
-    record_path.write_text(json.dumps({**record, "overall_judgment": "agent_error"}))
+    record_path.write_text(json.dumps({**record, "overall_judgment": "agent_error", "summary": "Static task audit failed before a valid record was produced: timeout"}))
 
     agent = StandInAgent(GOOD_TASK_ANSWER)
     monkeypatch.setattr(task_runner, "invoke_structured", agent)
@@ -156,6 +159,18 @@ def test_audit_tasks_exit_code_tells_that_agent_calls_failed(tmp_path: Path, con
 
     monkeypatch.setattr(task_runner, "invoke_structured", StandInAgent(GOOD_TASK_ANSWER))
     assert cli.main(argv) == 0
+
+
+def test_auditor_answer_of_agent_error_is_kept_and_not_tried_again(config, monkeypatch: pytest.MonkeyPatch):
+    output_root = write_collection(config, TASK_IDS)
+    answer = json.dumps({"overall_judgment": "agent_error", "summary": "I could not open the grader.", "confidence": "low", "findings": []})
+    agent = StandInAgent(answer)
+    monkeypatch.setattr(task_runner, "invoke_structured", agent)
+
+    result = audit_tasks(config, retry_errors=2)
+    assert agent.calls == 3 and result["failed_tasks"] == []  # one call per task: the answer is valid
+    assert set(judgments(output_root).values()) == {"agent_error"}
+    assert audit_tasks(config)["skipped_tasks"] == TASK_IDS and agent.calls == 3
 
 
 # --- benchmark audit --------------------------------------------------------------------------
