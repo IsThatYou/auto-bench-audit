@@ -11,9 +11,11 @@ from .batch import add_batch_arguments, run_batch
 from .benchmark_audit import audit_benchmark
 from .config import BenchmarkConfig, load_benchmark_config
 from .evidence_collection import DEFAULT_COLLECT_TIMEOUT, collect_evidence
-from .paths import checkout_root, skill_path
+from .paths import checkout_root, resolve_output_root, skill_path
 from .quick_audit import DEFAULT_MODELS, run_quick_audit
-from .task_audit import audit_tasks
+from .report import write_audit_report
+from .summary import DEFAULT_SHARED_THRESHOLD, SHARED_MIN_TASKS
+from .task_audit import audit_tasks, resolve_audit_mode
 from .trajectory_generation import generate_trajectories
 
 DESCRIPTION = """\
@@ -35,6 +37,8 @@ and `batch` does them for many. You can also run one phase at a time:
   2. collect-evidence   list the tasks and write one task config per task
   3. audit-tasks        review each task and write its findings
 
+`report` counts the findings again from the records on disk. It starts no agent.
+
 Every phase starts an agent command-line tool (claude, codex, or cursor) as a
 subprocess. The agent runs with its permission checks off. Each phase costs
 API money or subscription usage.
@@ -46,6 +50,12 @@ again: it skips what is finished and tries only the failed parts.
 
 RETRY_HELP = "Extra attempts for an agent call that fails (default: 1). Each attempt costs money. 0 = no retry"
 COLLECT_TIMEOUT_HELP = f"Seconds for the evidence-collection agent call (default: {DEFAULT_COLLECT_TIMEOUT})"
+
+SHARED_THRESHOLD_HELP = (
+    "For the report: a major finding is 'shared' when it cites a code file that the major findings of at least this share "
+    f"of the audited tasks cite, and of at least {SHARED_MIN_TASKS} tasks (default: {DEFAULT_SHARED_THRESHOLD}). "
+    "The report counts the tasks with a major finding with and without shared findings. A value above 1 marks none"
+)
 
 AGENT_CHOICES = sorted(AGENT_BINARIES)
 
@@ -111,6 +121,19 @@ def build_parser() -> argparse.ArgumentParser:
     tasks = add("audit-tasks", "Phase 3: review each task and write its findings.")
     _add_config_args(tasks)
     _add_task_audit_args(tasks)
+
+    report = add(
+        "report",
+        "Write the task-audit report again from the records on disk (no agent runs).",
+        "Count the task audit records of one audit run again, and write audit_report[_static].md and\n"
+        "audit_summary[_static].json again. No agent runs, so this costs nothing.\n\n"
+        "Example:\n"
+        "  bench-audit report --config data/benchmark_repos/hle/config.yaml --shared-threshold 0.5",
+    )
+    report.add_argument("--config", required=True, help="Benchmark config YAML of the audit run")
+    report.add_argument("--general-rubric", help="Path to a general rubric YAML (default: rubrics/general_rubric.yaml)")
+    report.add_argument("--mode", choices=["trajectory", "static"], help="Audit mode of the records (default: from the benchmark type)")
+    report.add_argument("--shared-threshold", type=_share, default=DEFAULT_SHARED_THRESHOLD, help=SHARED_THRESHOLD_HELP)
 
     generate = add(
         "generate",
@@ -185,6 +208,20 @@ def _add_task_audit_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--max-workers", type=int, default=1, help="Tasks to audit in parallel (default: 1)")
     parser.add_argument("--timeout", type=int, default=800, help="Seconds per agent call (default: 800)")
     parser.add_argument("--retry-errors", type=int, default=1, help=RETRY_HELP)
+    parser.add_argument("--shared-threshold", type=_share, default=DEFAULT_SHARED_THRESHOLD, help=SHARED_THRESHOLD_HELP)
+    parser.add_argument("--skip-input-check", action="store_true",
+                        help="Audit a task also when a file that its task config names is not on disk "
+                             "(default: such a task gets no agent call and its record says insufficient_evidence)")
+
+
+def _share(text: str) -> float:
+    try:
+        value = float(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{text!r} is not a number") from None
+    if value <= 0:
+        raise argparse.ArgumentTypeError("must be greater than 0")
+    return value
 
 
 def load_env_files() -> None:
@@ -294,6 +331,23 @@ def _dispatch(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
             sys.stdout.write(text)
         return 0
 
+    if args.command == "report":
+        config = load_benchmark_config(args.config)
+        result = write_audit_report(
+            resolve_output_root(config),
+            load_general_rubric(args.general_rubric),
+            audit_mode=resolve_audit_mode(args.mode, config),
+            shared_threshold=args.shared_threshold,
+        )
+        counts = result["summary"]
+        print(
+            f"{counts['audited']} task(s) audited, {counts['not_counted']['total']} not counted. "
+            f"Tasks with a major finding: {counts['tasks_with_major']['count']}; "
+            f"with shared findings left out: {counts['tasks_with_major_not_shared']['count']}."
+        )
+        print(result["report_path"])
+        return 0
+
     if args.command == "generate":
         generate_trajectories(
             harbor_config=Path(args.harbor_config).resolve(),
@@ -366,6 +420,8 @@ def _audit_tasks(config: BenchmarkConfig, args: argparse.Namespace) -> bool:
         sample_n=args.sample_n,
         sample_seed=args.sample_seed,
         retry_errors=args.retry_errors,
+        check_inputs=not args.skip_input_check,
+        shared_threshold=args.shared_threshold,
     )
     return bool(result.get("failed_tasks"))
 

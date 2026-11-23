@@ -9,7 +9,7 @@ from bench_audit.audit_protocol import PHASE_ORDER, load_general_rubric, resolve
 
 from .conftest import write_config
 
-COMMANDS = ["audit", "audit-benchmark", "collect-evidence", "audit-tasks", "generate", "run", "batch", "skill"]
+COMMANDS = ["audit", "audit-benchmark", "collect-evidence", "audit-tasks", "report", "generate", "run", "batch", "skill"]
 
 
 @pytest.fixture

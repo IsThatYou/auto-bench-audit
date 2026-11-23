@@ -6,7 +6,17 @@ from pathlib import Path
 from typing import Any
 
 from ..agent_cli import AgentCliError, build_agent_request, invoke_structured, set_aside_failed_log
-from ..audit_models import AGENT_ERROR, FAILED_MARK, TaskAuditRecord, is_failed_call, parse_agent_json_object, record_is_done, task_audit_record_json_schema
+from ..audit_models import (
+    AGENT_ERROR,
+    FAILED_MARK,
+    TaskAuditRecord,
+    is_failed_call,
+    is_missing_inputs,
+    parse_agent_json_object,
+    record_is_done,
+    record_is_missing_inputs,
+    task_audit_record_json_schema,
+)
 from ..audit_protocol import (
     build_agent_add_dirs,
     load_collection_state,
@@ -18,14 +28,16 @@ from ..audit_protocol import (
 from ..config import BenchmarkConfig
 from ..evidence_collection import TaskConfig
 from ..progress import ProgressTracker
-from ..report import render_audit_report
+from ..report import write_audit_report
+from ..summary import DEFAULT_SHARED_THRESHOLD
 from .context import EvalArtifactPaths, eval_artifact_paths, select_eval_configs, select_task_configs
+from .preflight import missing_input_paths, missing_inputs_record
 from .prompt import render_static_task_audit_prompt, render_task_audit_prompt
 
 AUDIT_MODES = {"trajectory", "static"}
 
 
-def _resolve_audit_mode(audit_mode: str | None, config: BenchmarkConfig) -> str:
+def resolve_audit_mode(audit_mode: str | None, config: BenchmarkConfig) -> str:
     """Resolve audit mode: explicit value, or auto-detect from benchmark type."""
     if audit_mode is not None:
         if audit_mode not in AUDIT_MODES:
@@ -50,14 +62,22 @@ def audit_tasks(
     sample_n: int | None = None,
     sample_seed: int = 42,
     retry_errors: int = 1,
+    check_inputs: bool = True,
+    shared_threshold: float = DEFAULT_SHARED_THRESHOLD,
 ) -> dict[str, Any]:
     """Audit the selected tasks, one agent call per task.
 
     A task whose record is an ``agent_error`` is not finished: the agent call
     failed before it gave a valid answer. Such a task is tried again, up to
     ``retry_errors`` more times in this run, and again on the next run.
+
+    With ``check_inputs``, a task gets no agent call when a file that its task
+    config names is not on disk. Its record says ``insufficient_evidence`` and
+    lists the missing paths. The next run checks the files again.
+
+    ``shared_threshold`` goes to the report: see ``bench_audit.summary``.
     """
-    mode = _resolve_audit_mode(audit_mode, config)
+    mode = resolve_audit_mode(audit_mode, config)
     attempts = 1 + max(0, retry_errors)
     output_root = resolve_output_root(config)
     general_rubric = load_general_rubric(general_rubric_path)
@@ -87,10 +107,11 @@ def audit_tasks(
     output_dir.mkdir(parents=True, exist_ok=True)
     conversation_dir = output_dir / "conversations"
     conversation_dir.mkdir(parents=True, exist_ok=True)
+    add_dirs = build_agent_add_dirs(config, output_root)
     request = build_agent_request(
         config.agent_cli,
         config.model,
-        add_dirs=build_agent_add_dirs(config, output_root),
+        add_dirs=add_dirs,
         api_key_env=config.api_key_env,
     )
 
@@ -110,23 +131,46 @@ def audit_tasks(
             "workers": str(max_workers),
             "timeout": f"{timeout}s",
             "retry_errors": str(attempts - 1),
+            "check_inputs": str(check_inputs),
             "force": str(force),
         },
     )
 
     # Separate finished (skipped) tasks from tasks that need work.
     # A record that is an agent_error is not finished, so its task runs again.
+    # A task that was not audited because its files were missing is checked again: the files may be there now.
     to_run: list[tuple[Any, Path]] = []  # (task_config, target_path)
     written_paths: list[str] = []
     skipped_tasks: list[str] = []
     failed_tasks: list[str] = []
+    not_auditable_tasks: list[str] = []
     for task_config in selected_tasks:
         target_path = output_dir / f"{task_config.task_id}.json"
-        if not force and record_is_done(target_path):
+        if not force and record_is_done(target_path) and not record_is_missing_inputs(target_path):
             skipped_tasks.append(task_config.task_id)
             progress.skip(task_config.task_id)
         else:
             to_run.append((task_config, target_path))
+
+    def _selected_evals(task_config: Any) -> list[Any]:
+        eval_configs = collection.eval_configs.get(task_config.task_id, [])
+        return select_eval_configs(task_config, eval_configs, eval_strategy=eval_strategy)
+
+    def _missing_inputs(task_config: Any) -> TaskAuditRecord | None:
+        """The record of a task that cannot be audited here, or None when every file it names is on disk."""
+        missing = missing_input_paths(task_config, roots=add_dirs) if check_inputs else []
+        if not missing:
+            return None
+        progress.note(f"{task_config.task_id} — not audited, {len(missing)} file(s) that its task config names are missing: {_one_line('; '.join(missing))}")
+        if mode == "static":
+            return missing_inputs_record(task_config, missing, task_status="unscored", rubric_path=str(rubric_txt_path))
+        return missing_inputs_record(
+            task_config,
+            missing,
+            task_status=task_config.status,
+            selected_eval_ids=[ec.eval_id for ec in _selected_evals(task_config)],
+            rubric_path=str(rubric_txt_path),
+        )
 
     def _audit_once(task_config: Any, conversation_log_path: Path) -> TaskAuditRecord:
         if mode == "static":
@@ -136,8 +180,7 @@ def audit_tasks(
                 long_text_dir=output_dir / "long_inputs" / task_config.task_id,
                 conversation_log_path=conversation_log_path,
             )
-        eval_configs = collection.eval_configs.get(task_config.task_id, [])
-        selected_raw = select_eval_configs(task_config, eval_configs, eval_strategy=eval_strategy)
+        selected_raw = _selected_evals(task_config)
         selected_paths = [eval_artifact_paths(ec) for ec in selected_raw]
         selected_ids = [ec.eval_id for ec in selected_raw]
         return _run_single_task(
@@ -158,6 +201,9 @@ def audit_tasks(
         conversation_log_path = conversation_dir / f"{_sanitize_task_id(task_id)}.json"
         if target_path.exists() and not record_is_done(target_path):
             set_aside_failed_log(conversation_log_path)  # the log of the failed attempt from an earlier run
+        not_auditable = _missing_inputs(task_config)
+        if not_auditable is not None:
+            return task_id, target_path, not_auditable
         record = _audit_once(task_config, conversation_log_path)
         for attempt in range(2, attempts + 1):
             if not is_failed_call(record.overall_judgment, record.summary):
@@ -176,10 +222,22 @@ def audit_tasks(
             written_paths.append(str(target_path))
             if is_error:
                 failed_tasks.append(task_id)
+            if is_missing_inputs(record.overall_judgment, record.summary):
+                not_auditable_tasks.append(task_id)
             progress.done(task_id, error=is_error)
 
     progress.finish()
     failed_tasks.sort()
+    not_auditable_tasks.sort()
+    if not_auditable_tasks:
+        shown = ", ".join(not_auditable_tasks[:10]) + (f" (+{len(not_auditable_tasks) - 10} more)" if len(not_auditable_tasks) > 10 else "")
+        print(
+            f"[bench-audit] {len(not_auditable_tasks)} of {len(to_run)} tasks were not audited, because files that their task config names "
+            f"are not on this machine: {shown}\n"
+            f"[bench-audit] Their records say insufficient_evidence and list the missing paths. No agent ran for them, and the report does "
+            f"not count them. Put the files in place and run the same command again.",
+            file=sys.stderr,
+        )
     if failed_tasks:
         shown = ", ".join(failed_tasks[:10]) + (f" (+{len(failed_tasks) - 10} more)" if len(failed_tasks) > 10 else "")
         print(
@@ -188,26 +246,20 @@ def audit_tasks(
             file=sys.stderr,
         )
 
-    report_name = "audit_report.md" if mode == "trajectory" else "audit_report_static.md"
-    report_path = Path(output_root) / report_name
-    report_path.write_text(
-        render_audit_report(
-            output_root,
-            general_rubric,
-            audit_mode=mode,
-            rubric_path=rubric_txt_path,
-        )
-    )
+    report = write_audit_report(output_root, general_rubric, audit_mode=mode, rubric_path=rubric_txt_path, shared_threshold=shared_threshold)
     return {
         "output_root": str(output_root),
         "task_audit_dir": str(output_dir),
-        "report_path": str(report_path),
+        "report_path": report["report_path"],
+        "summary_path": report["summary_path"],
+        "summary": report["summary"],
         "rubric_path": str(rubric_txt_path),
         "audit_mode": mode,
         "selected_tasks": [task.task_id for task in selected_tasks],
         "written_task_audits": written_paths,
         "skipped_tasks": skipped_tasks,
         "failed_tasks": failed_tasks,
+        "not_auditable_tasks": not_auditable_tasks,
     }
 
 

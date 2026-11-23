@@ -380,6 +380,53 @@ def is_failed_call(overall_judgment: str, summary: str) -> bool:
     return overall_judgment == AGENT_ERROR and FAILED_MARK in (summary or "")
 
 
+INSUFFICIENT_EVIDENCE = "insufficient_evidence"
+# bench-audit writes this into the summary of a record when it did not start the audit,
+# because files that the task config names are not on disk (see task_audit/preflight.py).
+MISSING_INPUTS_MARK = "the task config names files that are missing on this machine"
+# A finding with this severity or a higher one is a major finding.
+MAJOR_SEVERITY = 2
+
+
+def not_counted_reason(overall_judgment: str, summary: str) -> str | None:
+    """Return why a task audit record is not the result of an audit, or None when it is one.
+
+    Three kinds of record say nothing about the task, so no count and no rate may include them:
+
+    - ``failed_agent_call``: the agent call failed (see ``is_failed_call``). No audit was done.
+    - ``missing_input_files``: bench-audit did not start the audit, because files that the task
+      config names are not on disk (see ``is_missing_inputs``).
+    - ``insufficient_evidence``: the auditor could not judge the task, for example because it
+      could not open the task's input files.
+
+    An ``agent_error`` that the auditor itself gave, with a normal verdict, is a result.
+    """
+    if is_failed_call(overall_judgment, summary):
+        return "failed_agent_call"
+    if is_missing_inputs(overall_judgment, summary):
+        return "missing_input_files"
+    if overall_judgment == INSUFFICIENT_EVIDENCE:
+        return INSUFFICIENT_EVIDENCE
+    return None
+
+
+def is_missing_inputs(overall_judgment: str, summary: str) -> bool:
+    """Return True for a record that bench-audit wrote because the task's files are not on disk.
+
+    Such a record is finished (no new agent call can change it), but it is not final: the next
+    run checks the files again, and audits the task when they are there.
+    """
+    return overall_judgment == INSUFFICIENT_EVIDENCE and MISSING_INPUTS_MARK in (summary or "")
+
+
+def record_is_missing_inputs(path: str | Path) -> bool:
+    try:
+        data = json.loads(Path(path).read_text())
+    except (OSError, ValueError):
+        return False
+    return isinstance(data, dict) and is_missing_inputs(str(data.get("overall_judgment") or ""), str(data.get("summary") or ""))
+
+
 def record_is_done(path: str | Path) -> bool:
     """Return True when the record at ``path`` holds a finished audit.
 

@@ -86,7 +86,10 @@ artifact_manifest.yaml        # phase 2: the list of tasks
 task_configs/<task>/task_config.json
 task_audits_static/<task>.json  # phase 3: findings for each task
 audit_report_static.md        # summary table over all audited tasks
+audit_summary_static.json     # the counts of the report, for scripts
 ```
+
+The report counts a task as audited only when its record is the result of an audit. Two kinds of record are not: a record that a failed agent call left behind, and a record whose judgment is `insufficient_evidence` (the auditor could not judge the task, or the task's files are missing on this machine). The report shows these as their own number, `Not counted`, and leaves them out of `Tasks audited` and of `Tasks with a major finding`.
 
 Each task audit holds a list of findings. This one is from Terminal-Bench 2, task `configure-git-webserver` (file paths shortened):
 
@@ -117,6 +120,28 @@ An agent call can fail: it reaches its time limit, the command crashes, or the a
 Evidence collection has a time limit of 3600 seconds (`--timeout` on `collect-evidence`, `--collect-timeout` on `audit`, `run`, and `batch`). A finished collection is not collected again; pass `--force` to collect it again. The log of a failed attempt is kept in a `failed/` folder next to the conversation logs.
 
 In a batch, a benchmark with a failed agent call is marked `failed` in the tracker, and its clone is kept. The next `bench-audit batch` tries only the failed parts again.
+
+## When a task's files are missing
+
+A task config names files: the task's data, its tests, its reference answer, and the paths in `audit_notes`. Before a task audit starts, `bench-audit` checks that these files are on disk. If one is missing (gated data, media that was not downloaded, a clone that was deleted), the task gets no agent call. Its record says `"overall_judgment": "insufficient_evidence"` and its `summary` lists the missing paths. The report shows the task under `Not counted`, and the exit code stays `0`.
+
+Put the files in place and run the same command again: the check runs again for these tasks, and a task whose files are there now is audited. `--skip-input-check` on `audit-tasks` and `run` turns the check off.
+
+The task-audit prompt has the matching rule for files that the check cannot see: a file that the auditor cannot open on its own machine is not a defect of the task.
+
+## When one defect shows up on many tasks
+
+Every task audit sees the whole benchmark repository. So one defect in shared code, for example a bug in the scoring script, is filed again on every task that uses the script. The number of tasks with a major finding is then high, although the benchmark has one bug.
+
+The report marks such findings as shared. A major finding (severity 2) is shared when it cites a code file that the major findings of at least 30% of the audited tasks cite, and of at least 3 tasks. Only code files count: many tasks cite a data file that holds all tasks, each for a different defect. The report gives the number of tasks with a major finding twice, with every major finding and with the shared ones left out, and it lists the shared files. No finding is removed, and the task records do not change.
+
+`--shared-threshold` on `audit-tasks` and `run` sets the share. `bench-audit report` writes the report again from the records on disk, without an agent call:
+
+```bash
+bench-audit report --config configs/multi_domain_all/medical_health/clinbench.yaml --shared-threshold 0.5
+```
+
+The mark is a count, not a judgment: a shared finding can still be a true defect of the task, and two tasks can cite one file for two different bugs. Read the listed files before you quote the lower number.
 
 ## Batch of Benchmarks Audit Pipeline
 

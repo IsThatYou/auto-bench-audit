@@ -64,6 +64,7 @@ The log ends with the output folder. It is `.bench-audit/runs/static/<name>__qui
 - `benchmark_audit.json`: the benchmark as a whole. `category_verdicts` has one entry for each of six categories (documentation, contamination, eval_methodology, dataset_quality, reproducibility, eval_infrastructure), each with a `severity`, a `rationale`, and `findings`.
 - `task_audits_static/<task_id>.json`: one record per audited task. `findings` is empty when the task is sound. Each finding has a `category` (`ambiguity`, `environment`, or `test_quality`), a `severity`, a `claim`, `why_it_matters`, `evidence` (a list of `path` and `note`), and a `suggested_fix`.
 - `audit_report_static.md` and `benchmark_audit_report.md`: short tables of the same.
+- `audit_summary_static.json`: the counts. `audited` is the number of tasks with a finished audit. `not_counted` lists the tasks whose record is not a result: `failed_agent_call` (the agent call failed), `missing_input_files` (files that the task config names are not on disk, so no agent ran; the record's `summary` lists the paths), and `insufficient_evidence` (the auditor could not judge the task). Use `audited`, not the number of record files, when you give a rate. `shared.files` lists the code files that the major findings of many tasks cite (at least 30% of the audited tasks, and at least 3), and `shared.findings` lists those findings per task: most likely one defect in shared code that was filed once per task. `tasks_with_major_not_shared` counts the tasks that have a major finding outside of these.
 
 Severity: `0` is no defect, `1` is a minor defect (a competent person can still get to the expected answer with some work), `2` is a major defect (the task cannot be solved as written, or the grader checks something other than what the task asks).
 
@@ -75,7 +76,7 @@ The findings are claims by an auditor agent, and some are wrong. For every findi
 
 ## 7. Report
 
-Lead with the numbers: how many tasks were audited out of how many exist, and how many have a severity 2 finding, a severity 1 finding, or none. Then:
+Lead with the numbers: how many tasks were audited out of how many exist, and how many have a severity 2 finding, a severity 1 finding, or none. Say how many tasks were not counted and why. If `shared.files` is not empty, report each shared defect once, as a defect of the benchmark's code, and give the number of tasks with a severity 2 finding both with and without the shared findings. Then:
 
 - the benchmark-level findings with severity 1 or 2;
 - each confirmed task finding: the task id, the defect in a sentence or two, the file and line that shows it, and the suggested fix;
