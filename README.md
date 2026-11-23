@@ -33,26 +33,15 @@ ABA does not call a model API itself. It starts an agent command-line tool as a 
 
 Optional: `cp .env.example .env` to set API keys and data folders. `bench-audit` reads `.env` from the current folder and from the repo root. Without it, clones go to `./data/benchmark_repos` and results go to `./data/audit_runs`.
 
-> [!WARNING]
-> The auditor agent runs with its permission checks turned off (`claude --dangerously-skip-permissions`, `codex exec --yolo`) and with shell access, on a benchmark repository that you cloned from the internet. Run audits on a machine or in a container where that is acceptable, and audit only repositories you trust. Each phase also spends API credits or subscription usage.
-
 ## Use it from Claude Code or Codex
 
-Paste this into Claude Code or Codex, in the folder of the benchmark you want to audit:
+Copy and paste this into your coding agent, in the folder of the benchmark you want to audit:
 
 ```text
 Run `uvx --from git+https://github.com/IsThatYou/auto-bench-audit bench-audit skill` and follow what it prints to audit the benchmark in this folder.
 ```
 
-The command prints a skill: instructions that tell the agent how to run the audit, what to ask you first (the audit starts agents with their permission checks off, and it costs money), and how to check and explain the findings. You need `uv` and the agent CLI, and nothing else. The first run downloads this repository (about 300 MB). To audit a public benchmark instead, end the sentence with its repository URL.
-
-To keep the skill in Claude Code for every session:
-
-```bash
-uvx --from git+https://github.com/IsThatYou/auto-bench-audit bench-audit skill --install ~/.claude/skills
-```
-
-The skill itself is [`skills/bench-audit/SKILL.md`](skills/bench-audit/SKILL.md).
+That is all. The agent runs the audit and explains the findings. To audit a public benchmark instead, end the sentence with its repository URL.
 
 ## Audit any benchmark in one command
 
