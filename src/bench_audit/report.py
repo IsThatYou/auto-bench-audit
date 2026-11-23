@@ -13,6 +13,7 @@ from .summary import TaskAuditSummary, major_findings, summarize_task_audits
 NOT_COUNTED_LABELS = {
     "failed_agent_call": "failed agent calls",
     "insufficient_evidence": "insufficient evidence",
+    "missing_input_files": "missing input files",
 }
 
 
@@ -111,7 +112,8 @@ def _render(
             f"- Not counted: `{summary.not_counted_total}`{_not_counted_detail(summary)}",
             f"- Tasks with a major finding (severity {MAJOR_SEVERITY} or higher): `{len(summary.with_major)}` of `{audited}` audited",
             "",
-            "A record is not counted when the agent call failed, or when its judgment is `insufficient_evidence`. "
+            "A record is not counted when the agent call failed, or when its judgment is `insufficient_evidence` "
+            "(the auditor could not judge the task, or files that the task config names are missing on this machine). "
             "Such a record is not the result of an audit, so the counts above leave it out.",
             "",
             "## Task Audit Summary",

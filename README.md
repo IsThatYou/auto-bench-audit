@@ -89,7 +89,7 @@ audit_report_static.md        # summary table over all audited tasks
 audit_summary_static.json     # the counts of the report, for scripts
 ```
 
-The report counts a task as audited only when its record is the result of an audit. Two kinds of record are not: a record that a failed agent call left behind, and a record whose judgment is `insufficient_evidence` (the auditor could not judge the task). The report shows these as their own number, `Not counted`, and leaves them out of `Tasks audited` and of `Tasks with a major finding`.
+The report counts a task as audited only when its record is the result of an audit. Two kinds of record are not: a record that a failed agent call left behind, and a record whose judgment is `insufficient_evidence` (the auditor could not judge the task, or the task's files are missing on this machine). The report shows these as their own number, `Not counted`, and leaves them out of `Tasks audited` and of `Tasks with a major finding`.
 
 Each task audit holds a list of findings. This one is from Terminal-Bench 2, task `configure-git-webserver` (file paths shortened):
 
@@ -120,6 +120,14 @@ An agent call can fail: it reaches its time limit, the command crashes, or the a
 Evidence collection has a time limit of 3600 seconds (`--timeout` on `collect-evidence`, `--collect-timeout` on `audit`, `run`, and `batch`). A finished collection is not collected again; pass `--force` to collect it again. The log of a failed attempt is kept in a `failed/` folder next to the conversation logs.
 
 In a batch, a benchmark with a failed agent call is marked `failed` in the tracker, and its clone is kept. The next `bench-audit batch` tries only the failed parts again.
+
+## When a task's files are missing
+
+A task config names files: the task's data, its tests, its reference answer, and the paths in `audit_notes`. Before a task audit starts, `bench-audit` checks that these files are on disk. If one is missing (gated data, media that was not downloaded, a clone that was deleted), the task gets no agent call. Its record says `"overall_judgment": "insufficient_evidence"` and its `summary` lists the missing paths. The report shows the task under `Not counted`, and the exit code stays `0`.
+
+Put the files in place and run the same command again: the check runs again for these tasks, and a task whose files are there now is audited. `--skip-input-check` on `audit-tasks` and `run` turns the check off.
+
+The task-audit prompt has the matching rule for files that the check cannot see: a file that the auditor cannot open on its own machine is not a defect of the task.
 
 ## Batch of Benchmarks Audit Pipeline
 

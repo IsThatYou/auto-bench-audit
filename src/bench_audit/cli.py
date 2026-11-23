@@ -185,6 +185,9 @@ def _add_task_audit_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--max-workers", type=int, default=1, help="Tasks to audit in parallel (default: 1)")
     parser.add_argument("--timeout", type=int, default=800, help="Seconds per agent call (default: 800)")
     parser.add_argument("--retry-errors", type=int, default=1, help=RETRY_HELP)
+    parser.add_argument("--skip-input-check", action="store_true",
+                        help="Audit a task also when a file that its task config names is not on disk "
+                             "(default: such a task gets no agent call and its record says insufficient_evidence)")
 
 
 def load_env_files() -> None:
@@ -366,6 +369,7 @@ def _audit_tasks(config: BenchmarkConfig, args: argparse.Namespace) -> bool:
         sample_n=args.sample_n,
         sample_seed=args.sample_seed,
         retry_errors=args.retry_errors,
+        check_inputs=not args.skip_input_check,
     )
     return bool(result.get("failed_tasks"))
 

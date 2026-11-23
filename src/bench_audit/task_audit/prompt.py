@@ -17,6 +17,19 @@ Your goal: decide whether the task's prompt, environment, and test suite are fai
 and well-specified. If they are, report no findings. If not, document each defect \
 with evidence."""
 
+# The audit machine often lacks files that the benchmark's users get (gated data, media that was not downloaded).
+# Without this rule the auditor files the missing file as a major defect of every task that needs it.
+_MISSING_FILE_RULE = """\
+- A file that you cannot open on this machine is not a defect of the task. \
+This machine may lack files that the benchmark's users get: gated or credentialed \
+data, or large media that was not downloaded here. Do not file a finding because a \
+path does not exist here or a file cannot be read here. If you cannot judge the \
+task without that file, set `overall_judgment` to `insufficient_evidence`, name the \
+paths in `summary`, and file no finding about them. A missing file is a finding only \
+when the benchmark's own files show that its users do not get the file either (for \
+example, the task's environment definition leaves out a file that the prompt requires).
+"""
+
 _WORKFLOW = """
 ## Workflow
 1. Read the rubric below. It defines what counts as a finding, how to distinguish \
@@ -36,8 +49,7 @@ You must open and read those files before making claims.
 - Distinguish prompt/specification issues from agent issues.
 - A finding is a benchmark defect, not an agent mistake. If the agent simply \
 wrote wrong code and the task is fair, that is severity 0 with no findings.
-
-"""
+""" + _MISSING_FILE_RULE + "\n"
 
 _FIELD_GUIDE = """\
 - instruction_text: the exact prompt the agent received — this is what you audit \
@@ -182,7 +194,7 @@ part of the audit. You MUST open and read through every such path before \
 forming conclusions. Do not reason about their contents based on filenames, \
 directory listings, or the notes alone — read the files. This applies to \
 PDFs, ZIPs, code directories, and any other artifact referenced by path.
-"""
+""" + _MISSING_FILE_RULE
 
 _STATIC_FIELD_GUIDE = """\
 - instruction_text: the exact problem/question text — audit this for \
