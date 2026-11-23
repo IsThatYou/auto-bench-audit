@@ -25,6 +25,12 @@ def normalize_instruction_source(value: Any) -> str | None:
     return text if text in INSTRUCTION_SOURCES else None
 
 
+# What the collector writes as ``task_unit`` of the manifest when the benchmark has no item-level task
+# (a meta-evaluation, a library, a training set, a metric that exists only over a whole set).
+# Such a benchmark gets no task audit: the benchmark-level audit is its audit.
+NO_TASK_UNIT = "none"
+
+
 @dataclass(slots=True)
 class TaskEntry:
     """Thin index entry in the manifest — just task_id and its eval_ids."""
@@ -65,6 +71,14 @@ class ArtifactManifest:
     source_data_dir: str = ""
     output_root: str = ""
     tasks: list[TaskEntry] = field(default_factory=list)
+    # What one task of the benchmark is, in one sentence, or NO_TASK_UNIT. None when the collector did not state it.
+    task_unit: str | None = None
+    task_unit_reason: str | None = None  # with NO_TASK_UNIT: what the benchmark is instead
+
+    @property
+    def has_no_task_unit(self) -> bool:
+        """True when the collector found no item-level task, so no task audit runs for this benchmark."""
+        return self.task_unit == NO_TASK_UNIT
 
     def validate(self) -> None:
         if self.manifest_version < 1:
@@ -99,6 +113,8 @@ class ArtifactManifest:
             source_data_dir=str(data.get("source_data_dir") or ""),
             output_root=str(data.get("output_root") or ""),
             tasks=tasks,
+            task_unit=_task_unit(data.get("task_unit")),
+            task_unit_reason=_optional_str(data.get("task_unit_reason")),
         )
         manifest.validate()
         return manifest
@@ -249,6 +265,13 @@ def normalize_manifest(manifest: ArtifactManifest) -> ArtifactManifest:
     manifest.manifest_version = max(manifest.manifest_version, 2)
     manifest.validate()
     return manifest
+
+
+def _task_unit(value: Any) -> str | None:
+    text = _optional_str(value)
+    if text is not None and text.strip("\"'`. ").lower() == NO_TASK_UNIT:
+        return NO_TASK_UNIT
+    return text
 
 
 def _optional_str(value: Any) -> str | None:

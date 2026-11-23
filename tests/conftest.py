@@ -39,7 +39,15 @@ def write_config(folder: Path, **overrides) -> Path:
     return path
 
 
-def write_collection(config, task_ids: list[str], *, skip_configs: tuple[str, ...] = (), report: bool = True) -> Path:
+def write_collection(
+    config,
+    task_ids: list[str],
+    *,
+    skip_configs: tuple[str, ...] = (),
+    report: bool = True,
+    task_unit: str | None = None,
+    task_unit_reason: str | None = None,
+) -> Path:
     """Write the files that a finished evidence collection leaves behind. Return the output folder."""
     from bench_audit.evidence_collection import ArtifactManifest, TaskConfig, TaskEntry
     from bench_audit.paths import resolve_output_root
@@ -70,6 +78,8 @@ def write_collection(config, task_ids: list[str], *, skip_configs: tuple[str, ..
         source_data_dir=config.source_data_dir,
         output_root=str(output_root),
         tasks=[TaskEntry(task_id=task_id) for task_id in task_ids],
+        task_unit=task_unit,
+        task_unit_reason=task_unit_reason,
     ).save_yaml(output_root / "artifact_manifest.yaml")
     if report:
         (output_root / "collection_report.md").write_text("report")

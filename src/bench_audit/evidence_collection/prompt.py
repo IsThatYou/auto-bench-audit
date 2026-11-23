@@ -6,6 +6,25 @@ from ..config import BenchmarkConfig
 
 # The task audit judges `instruction_text` as the benchmark's prompt. A collector that shortened the text, or wrote
 # one where the benchmark has none, made the auditor file defects of a text that no model is given.
+# Some benchmarks have no item-level task. A collector that must list tasks then makes some up, and the task audit
+# files the defects of that made-up framing on every one of them.
+_TASK_UNIT_RULE = """\
+- task_unit: one sentence that says what one task of this benchmark is (for
+  example: "one row of data/test.jsonl: a question and its gold answer").
+  Write the string "none" (not null) when the benchmark has no item-level task:
+  no file or field of it holds separate items that each have an input for a
+  model and an expected outcome or a scoring rule. Examples: a meta-evaluation
+  or a review of other benchmarks, a library or a tool, a training set with no
+  evaluation items, a metric that exists only over a whole set of outputs.
+  With "none":
+  - write task_unit_reason: one or two sentences that say what the benchmark is
+    instead
+  - write an empty tasks list, and write no TaskConfig files
+  - do not make up tasks so that there is something to audit. The benchmark
+    then gets no task audit, and its benchmark-level audit is its audit.
+  A benchmark whose items are scored by a judge model, a rubric, or people
+  still has tasks: "none" is only for a benchmark with no items to score."""
+
 _INSTRUCTION_RULE = """\
 - instruction_text: the prompt that the benchmark gives a model for this task, in
   full (inline it). It must be the benchmark's text and not yours: do not shorten,
@@ -278,6 +297,7 @@ Task content — link these back to the actual files from Phase 1:
 ArtifactManifest rules:
 - Each TaskEntry must have a task_id and an empty eval_ids list
 - source_data_dir: set to benchmark_data_dir
+{_TASK_UNIT_RULE}
 
 Conventions:
 - Emit absolute paths everywhere

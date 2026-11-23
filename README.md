@@ -130,6 +130,14 @@ A text that the collector wrote is not the benchmark's text. For such a task the
 
 A task config of an older collection has no `instruction_source`. Such a task is counted as before. Collect the benchmark again (`collect-evidence --force`) to get the field.
 
+## When a benchmark has no item-level task
+
+Some benchmarks have no separate items that each have an input for a model and an expected outcome: a meta-evaluation or a review of other benchmarks, a library, a training set, a metric that exists only over a whole set of outputs. For such a benchmark the evidence collector writes `task_unit: none` and a `task_unit_reason` into `artifact_manifest.yaml`, lists no tasks, and makes none up. For every other benchmark, `task_unit` says in one sentence what one task is.
+
+With `task_unit: none`, `audit-tasks` starts no agent. The report says `Task-level audit: none` with the collector's reason, its task counts are zero, and `audit_summary_static.json` says `"task_level_audit": false`. The benchmark-level audit (`benchmark_audit_report.md`) is then the audit of the benchmark. `bench-audit batch` skips the task stages for it and marks it done.
+
+The collector agent decides this alone, so read `task_unit_reason` in `collection_report.md` when a benchmark that you expected to have tasks shows none. To overrule it, edit `task_unit` in the manifest or collect again with `collect-evidence --force`.
+
 ## When one defect shows up on many tasks
 
 Every task audit sees the whole benchmark repository. So one defect in shared code, for example a bug in the scoring script, is filed again on every task that uses the script. The number of tasks with a major finding is then high, although the benchmark has one bug.

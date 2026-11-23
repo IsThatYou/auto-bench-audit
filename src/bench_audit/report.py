@@ -46,12 +46,14 @@ def write_audit_report(
     report_path = root / f"audit_report{suffix}.md"
     summary_path = root / f"audit_summary{suffix}.json"
     manifest = ArtifactManifest.load_yaml(root / "artifact_manifest.yaml")
-    task_audits = load_task_audits(root, general_rubric, audit_mode)
+    task_audits, ignored = _counted_task_audits(manifest, load_task_audits(root, general_rubric, audit_mode))
     summary = summarize_task_audits(task_audits.values(), shared_threshold=shared_threshold)
-    report_path.write_text(_render(manifest, task_audits, summary, audit_mode, rubric_path))
+    report_path.write_text(_render(manifest, task_audits, summary, audit_mode, rubric_path, ignored))
     data = {
         "benchmark_name": manifest.benchmark_name,
         "audit_mode": audit_mode,
+        "task_unit": manifest.task_unit,
+        "task_level_audit": not manifest.has_no_task_unit,
         "tasks_discovered": len(manifest.tasks),
         **summary.to_dict(),
     }
@@ -68,9 +70,20 @@ def render_audit_report(
 ) -> str:
     root = Path(output_root).resolve()
     manifest = ArtifactManifest.load_yaml(root / "artifact_manifest.yaml")
-    task_audits = load_task_audits(root, general_rubric, audit_mode)
+    task_audits, ignored = _counted_task_audits(manifest, load_task_audits(root, general_rubric, audit_mode))
     summary = summarize_task_audits(task_audits.values(), shared_threshold=shared_threshold)
-    return _render(manifest, task_audits, summary, audit_mode, rubric_path)
+    return _render(manifest, task_audits, summary, audit_mode, rubric_path, ignored)
+
+
+def _counted_task_audits(manifest: ArtifactManifest, task_audits: dict[str, TaskAuditRecord]) -> tuple[dict[str, TaskAuditRecord], int]:
+    """Return the records that the report counts, and how many it leaves out.
+
+    A benchmark with no item-level task has no task audit. Records of an earlier run, from before
+    the collector said so, are records of made-up tasks, so the report leaves all of them out.
+    """
+    if manifest.has_no_task_unit:
+        return {}, len(task_audits)
+    return task_audits, 0
 
 
 def _render(
@@ -79,6 +92,7 @@ def _render(
     summary: TaskAuditSummary,
     audit_mode: str,
     rubric_path: str | Path | None,
+    ignored: int = 0,
 ) -> str:
     # Detect audit mode from task records (all unscored = static mode).
     if task_audits:
@@ -115,6 +129,7 @@ def _render(
             f"- Job type: `{manifest.job_type}`",
             f"- Audit mode: `{audit_mode}`",
             f"- Rubric: {rubric_summary}",
+            *_task_unit_lines(manifest, ignored),
             f"- Tasks discovered: `{len(manifest.tasks)}`",
             f"- Task audit records: `{summary.records}`",
             f"- Tasks audited: `{audited}`",
@@ -140,6 +155,21 @@ def _render(
             "",
         ]
     )
+
+
+def _task_unit_lines(manifest: ArtifactManifest, ignored: int) -> list[str]:
+    if not manifest.has_no_task_unit:
+        return [f"- Task unit: {manifest.task_unit}"] if manifest.task_unit else []
+    lines = [
+        "- Task unit: `none`",
+        "- Task-level audit: none. The evidence collector found no item-level task in this benchmark, so no task audit ran "
+        "and the task counts below are zero. The benchmark-level audit (`benchmark_audit_report.md`) is the audit of this benchmark.",
+    ]
+    if manifest.task_unit_reason:
+        lines.append(f"- Why there is no task unit: {manifest.task_unit_reason}")
+    if ignored:
+        lines.append(f"- Task audit records of an earlier run that are left out: `{ignored}`")
+    return lines
 
 
 def _shared_section(summary: TaskAuditSummary) -> list[str]:

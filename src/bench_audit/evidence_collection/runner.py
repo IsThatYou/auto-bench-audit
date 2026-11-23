@@ -88,7 +88,14 @@ def collect_evidence(
             set_aside_failed_log(conversation_log_path)
 
     _write_text(report_path, _collection_report(manifest, task_configs), force=True)
-    return {**result, "skipped": False}
+    if manifest.has_no_task_unit:
+        print(
+            "[bench-audit] the collector found no item-level task in this benchmark (task_unit: none)"
+            + (f": {manifest.task_unit_reason}" if manifest.task_unit_reason else "")
+            + "\n[bench-audit] No task audit runs for it. Its benchmark-level audit is its audit.",
+            file=sys.stderr,
+        )
+    return {**result, "skipped": False, "task_unit": manifest.task_unit}
 
 
 def collection_is_done(output_root: str | Path) -> bool:
@@ -221,6 +228,21 @@ def _write_text(path: Path, content: str, force: bool) -> None:
     path.write_text(content)
 
 
+def _task_unit_lines(manifest: ArtifactManifest) -> list[str]:
+    if manifest.has_no_task_unit:
+        reason = f" {manifest.task_unit_reason}" if manifest.task_unit_reason else ""
+        return [f"- Task unit: `none`. The collector found no item-level task, so this benchmark gets no task audit.{reason}"]
+    return [f"- Task unit: {manifest.task_unit}"] if manifest.task_unit else []
+
+
+def collection_has_no_task_unit(output_root: str | Path) -> bool:
+    """Return True when the collection at ``output_root`` says that the benchmark has no item-level task."""
+    try:
+        return ArtifactManifest.load_yaml(Path(output_root) / "artifact_manifest.yaml").has_no_task_unit
+    except _COLLECTION_ERRORS:
+        return False
+
+
 def _instruction_sources(task_configs: dict[str, TaskConfig]) -> str:
     """How many tasks have each ``instruction_source``, as one line for the collection report."""
     counts = Counter(tc.instruction_source or "not stated" for tc in task_configs.values())
@@ -264,6 +286,7 @@ def _collection_report(manifest: ArtifactManifest, task_configs: dict[str, TaskC
             f"- Job type: `{manifest.job_type}`",
             f"- Benchmark data: `{manifest.benchmark_data_dir}`",
             f"- Source data: `{manifest.source_data_dir}`",
+            *_task_unit_lines(manifest),
             f"- Tasks discovered: `{len(manifest.tasks)}`",
             f"- Evals discovered: `{total_evals}`",
             f"- Instruction source: {_instruction_sources(task_configs)}",
