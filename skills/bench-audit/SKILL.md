@@ -64,6 +64,7 @@ The log ends with the output folder. It is `.bench-audit/runs/static/<name>__qui
 - `benchmark_audit.json`: the benchmark as a whole. `category_verdicts` has one entry for each of six categories (documentation, contamination, eval_methodology, dataset_quality, reproducibility, eval_infrastructure), each with a `severity`, a `rationale`, and `findings`.
 - `task_audits_static/<task_id>.json`: one record per audited task. `findings` is empty when the task is sound. Each finding has a `category` (`ambiguity`, `environment`, or `test_quality`), a `severity`, a `claim`, `why_it_matters`, `evidence` (a list of `path` and `note`), and a `suggested_fix`.
 - `audit_report_static.md` and `benchmark_audit_report.md`: short tables of the same.
+- `audit_summary_static.json`: the counts. `audited` is the number of tasks with a finished audit. `not_counted` lists the tasks whose record is not a result: `failed_agent_call` (the agent call failed) and `insufficient_evidence` (the auditor could not judge the task). Use `audited`, not the number of record files, when you give a rate.
 
 Severity: `0` is no defect, `1` is a minor defect (a competent person can still get to the expected answer with some work), `2` is a major defect (the task cannot be solved as written, or the grader checks something other than what the task asks).
 

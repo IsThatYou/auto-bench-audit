@@ -380,6 +380,29 @@ def is_failed_call(overall_judgment: str, summary: str) -> bool:
     return overall_judgment == AGENT_ERROR and FAILED_MARK in (summary or "")
 
 
+INSUFFICIENT_EVIDENCE = "insufficient_evidence"
+# A finding with this severity or a higher one is a major finding.
+MAJOR_SEVERITY = 2
+
+
+def not_counted_reason(overall_judgment: str, summary: str) -> str | None:
+    """Return why a task audit record is not the result of an audit, or None when it is one.
+
+    Two kinds of record say nothing about the task, so no count and no rate may include them:
+
+    - ``failed_agent_call``: the agent call failed (see ``is_failed_call``). No audit was done.
+    - ``insufficient_evidence``: the auditor could not judge the task, for example because it
+      could not open the task's input files.
+
+    An ``agent_error`` that the auditor itself gave, with a normal verdict, is a result.
+    """
+    if is_failed_call(overall_judgment, summary):
+        return "failed_agent_call"
+    if overall_judgment == INSUFFICIENT_EVIDENCE:
+        return INSUFFICIENT_EVIDENCE
+    return None
+
+
 def record_is_done(path: str | Path) -> bool:
     """Return True when the record at ``path`` holds a finished audit.
 

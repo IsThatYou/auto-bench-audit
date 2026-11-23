@@ -193,6 +193,12 @@ def run_quick_audit(
     _log(f"output folder: {output_root}")
     _log(f"report:        {result.get('report_path', output_root / 'audit_report_static.md')}")
     _log(f"findings:      {result.get('task_audit_dir', output_root / 'task_audits_static')}")
+    counts = result.get("summary")
+    if counts:
+        _log(
+            f"counts:        {counts['audited']} task(s) audited, {counts['tasks_with_major']['count']} with a major finding, "
+            f"{counts['not_counted']['total']} not counted"
+        )
     return {"config_path": str(config_path), "output_root": str(output_root), **result, "failures": failures}
 
 

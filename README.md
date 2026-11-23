@@ -86,7 +86,10 @@ artifact_manifest.yaml        # phase 2: the list of tasks
 task_configs/<task>/task_config.json
 task_audits_static/<task>.json  # phase 3: findings for each task
 audit_report_static.md        # summary table over all audited tasks
+audit_summary_static.json     # the counts of the report, for scripts
 ```
+
+The report counts a task as audited only when its record is the result of an audit. Two kinds of record are not: a record that a failed agent call left behind, and a record whose judgment is `insufficient_evidence` (the auditor could not judge the task). The report shows these as their own number, `Not counted`, and leaves them out of `Tasks audited` and of `Tasks with a major finding`.
 
 Each task audit holds a list of findings. This one is from Terminal-Bench 2, task `configure-git-webserver` (file paths shortened):
 

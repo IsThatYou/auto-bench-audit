@@ -18,7 +18,7 @@ from ..audit_protocol import (
 from ..config import BenchmarkConfig
 from ..evidence_collection import TaskConfig
 from ..progress import ProgressTracker
-from ..report import render_audit_report
+from ..report import write_audit_report
 from .context import EvalArtifactPaths, eval_artifact_paths, select_eval_configs, select_task_configs
 from .prompt import render_static_task_audit_prompt, render_task_audit_prompt
 
@@ -188,20 +188,13 @@ def audit_tasks(
             file=sys.stderr,
         )
 
-    report_name = "audit_report.md" if mode == "trajectory" else "audit_report_static.md"
-    report_path = Path(output_root) / report_name
-    report_path.write_text(
-        render_audit_report(
-            output_root,
-            general_rubric,
-            audit_mode=mode,
-            rubric_path=rubric_txt_path,
-        )
-    )
+    report = write_audit_report(output_root, general_rubric, audit_mode=mode, rubric_path=rubric_txt_path)
     return {
         "output_root": str(output_root),
         "task_audit_dir": str(output_dir),
-        "report_path": str(report_path),
+        "report_path": report["report_path"],
+        "summary_path": report["summary_path"],
+        "summary": report["summary"],
         "rubric_path": str(rubric_txt_path),
         "audit_mode": mode,
         "selected_tasks": [task.task_id for task in selected_tasks],
