@@ -1,11 +1,28 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+# Where the ``instruction_text`` of a task config comes from. The collector states it.
+# - verbatim: copied without change from a file or a field of the benchmark.
+# - rendered: built with the benchmark's own prompt code or template, so it is the text a model gets.
+# - written_by_collector: the benchmark has no prompt text for the task, and the collector wrote one.
+#   Such a text is not the benchmark's, so the task audit does not judge it and the counts leave the task out.
+VERBATIM = "verbatim"
+RENDERED = "rendered"
+WRITTEN_BY_COLLECTOR = "written_by_collector"
+INSTRUCTION_SOURCES = (VERBATIM, RENDERED, WRITTEN_BY_COLLECTOR)
+
+
+def normalize_instruction_source(value: Any) -> str | None:
+    """Return one of ``INSTRUCTION_SOURCES``, or None when ``value`` is missing or is not one of them."""
+    text = re.sub(r"[\s-]+", "_", str(value or "").strip().lower())
+    return text if text in INSTRUCTION_SOURCES else None
 
 
 @dataclass(slots=True)
@@ -123,6 +140,7 @@ class TaskConfig:
     tests_ref: str | None          # path to tests used to verify success for this task — may be a directory of test files (tb2) or a single eval script or test related files (swe-bench)
     reference_answer: str | None    # inlined reference/gold answer (for static benchmarks without eval runs)
     audit_notes: str | None         # collector-generated guidance for the downstream audit agent — how to navigate the task data, where eval logic lives, benchmark-specific context
+    instruction_source: str | None = None  # one of INSTRUCTION_SOURCES; None when the collector did not state it (older collections)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -148,6 +166,7 @@ class TaskConfig:
             tests_ref=_optional_str(data.get("tests_ref") or data.get("tests_dir")),
             reference_answer=_optional_str(data.get("reference_answer")),
             audit_notes=_optional_str(data.get("audit_notes")),
+            instruction_source=normalize_instruction_source(data.get("instruction_source")),
         )
 
     @classmethod

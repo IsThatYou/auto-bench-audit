@@ -12,6 +12,7 @@ from .summary import DEFAULT_SHARED_THRESHOLD, TaskAuditSummary, major_findings,
 
 NOT_COUNTED_LABELS = {
     "failed_agent_call": "failed agent calls",
+    "instruction_written_by_collector": "instruction written by the collector",
     "insufficient_evidence": "insufficient evidence",
     "missing_input_files": "missing input files",
 }
@@ -123,7 +124,10 @@ def _render(
             "",
             "A record is not counted when the agent call failed, or when its judgment is `insufficient_evidence` "
             "(the auditor could not judge the task, or files that the task config names are missing on this machine). "
-            "Such a record is not the result of an audit, so the counts above leave it out.",
+            "Such a record is not the result of an audit, so the counts above leave it out. "
+            "A task is also not counted when the benchmark has no prompt text for it and the evidence collector wrote the "
+            "instruction text itself (`instruction_source` is `written_by_collector`): its findings stay in its record, "
+            "but the audit ran on a task that is partly ours.",
             "",
             *_shared_section(summary),
             "## Task Audit Summary",

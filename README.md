@@ -78,7 +78,7 @@ audit_report_static.md        # summary table over all audited tasks
 audit_summary_static.json     # the counts of the report, for scripts
 ```
 
-The report counts a task as audited only when its record is the result of an audit. Two kinds of record are not: a record that a failed agent call left behind, and a record whose judgment is `insufficient_evidence` (the auditor could not judge the task, or the task's files are missing on this machine). The report shows these as their own number, `Not counted`, and leaves them out of `Tasks audited` and of `Tasks with a major finding`.
+The report counts a task as audited only when its record is the result of an audit. Two kinds of record are not: a record that a failed agent call left behind, and a record whose judgment is `insufficient_evidence` (the auditor could not judge the task, or the task's files are missing on this machine). A third kind is the record of a task whose instruction text the evidence collector wrote itself (see "When a benchmark has no prompt text for a task"). The report shows these as their own number, `Not counted`, and leaves them out of `Tasks audited` and of `Tasks with a major finding`.
 
 Each task audit holds a list of findings. This one is from Terminal-Bench 2, task `configure-git-webserver` (file paths shortened):
 
@@ -117,6 +117,18 @@ A task config names files: the task's data, its tests, its reference answer, and
 Put the files in place and run the same command again: the check runs again for these tasks, and a task whose files are there now is audited. `--skip-input-check` on `audit-tasks` and `run` turns the check off.
 
 The task-audit prompt has the matching rule for files that the check cannot see: a file that the auditor cannot open on its own machine is not a defect of the task.
+
+## When a benchmark has no prompt text for a task
+
+The task audit judges `instruction_text` of the task config as the benchmark's prompt. Some benchmarks have no such text for a task: the prompt field of the dataset is empty, or the prompt exists only as code that builds it at run time. The evidence collector states where the text comes from, in `instruction_source` of each task config:
+
+- `verbatim`: copied without change from a file or a field of the benchmark.
+- `rendered`: built with the benchmark's own template or prompt code, so it is the text that a model gets.
+- `written_by_collector`: the benchmark has no prompt text for the task, and the collector wrote a description.
+
+A text that the collector wrote is not the benchmark's text. For such a task the auditor is told to file no finding about the instruction text (its wording, its format, what it leaves out) and to audit the rest as usual. The task's record keeps its findings and says `"instruction_source": "written_by_collector"`. The report shows the task under `Not counted`, so it is in neither `Tasks audited` nor `Tasks with a major finding`. `collection_report.md` shows how many tasks have each source.
+
+A task config of an older collection has no `instruction_source`. Such a task is counted as before. Collect the benchmark again (`collect-evidence --force`) to get the field.
 
 ## When one defect shows up on many tasks
 

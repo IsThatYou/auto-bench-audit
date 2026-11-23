@@ -290,6 +290,7 @@ def _run_single_task(
         payload["selected_eval_ids"] = list(selected_eval_ids)
         payload["rubric_path"] = rubric_path
         payload["audit_trajectory_path"] = str(conversation_log_path) if conversation_log_path else None
+        payload["instruction_source"] = task_config.instruction_source
         return TaskAuditRecord.from_dict(payload)
     except (AgentCliError, ValueError, TypeError, KeyError) as exc:
         return TaskAuditRecord(
@@ -303,6 +304,7 @@ def _run_single_task(
             summary=f"Task audit {FAILED_MARK}: {exc}",
             confidence="low",
             findings=[],
+            instruction_source=task_config.instruction_source,
         )
 
 
@@ -336,6 +338,7 @@ def _run_single_static_task(
         payload["selected_eval_ids"] = []
         payload["rubric_path"] = rubric_path
         payload["audit_trajectory_path"] = str(conversation_log_path) if conversation_log_path else None
+        payload["instruction_source"] = task_config.instruction_source
         return TaskAuditRecord.from_dict(payload)
     except (AgentCliError, ValueError, TypeError, KeyError) as exc:
         return TaskAuditRecord(
@@ -349,6 +352,7 @@ def _run_single_static_task(
             summary=f"Static task audit {FAILED_MARK}: {exc}",
             confidence="low",
             findings=[],
+            instruction_source=task_config.instruction_source,
         )
 
 

@@ -77,6 +77,7 @@ def missing_inputs_record(
         ),
         confidence="high",
         findings=[],
+        instruction_source=task_config.instruction_source,
     )
 
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +12,8 @@ from ..agent_cli import AgentCliError, build_agent_request, invoke_text, set_asi
 from ..config import BenchmarkConfig
 from ..paths import build_agent_add_dirs, build_output_dir_name, resolve_output_root  # noqa: F401  (scripts import these from here)
 from .models import (
+    INSTRUCTION_SOURCES,
+    WRITTEN_BY_COLLECTOR,
     ArtifactManifest,
     TaskConfig,
     normalize_manifest,
@@ -218,6 +221,16 @@ def _write_text(path: Path, content: str, force: bool) -> None:
     path.write_text(content)
 
 
+def _instruction_sources(task_configs: dict[str, TaskConfig]) -> str:
+    """How many tasks have each ``instruction_source``, as one line for the collection report."""
+    counts = Counter(tc.instruction_source or "not stated" for tc in task_configs.values())
+    parts = [f"`{name}`: `{counts[name]}`" for name in (*INSTRUCTION_SOURCES, "not stated") if counts[name]]
+    line = ", ".join(parts) or "no tasks"
+    if counts[WRITTEN_BY_COLLECTOR]:
+        line += " (the audit report does not count a task whose instruction the collector wrote)"
+    return line
+
+
 def _collection_report(manifest: ArtifactManifest, task_configs: dict[str, TaskConfig]) -> str:
     task_rows: list[str] = []
     total_evals = 0
@@ -253,6 +266,7 @@ def _collection_report(manifest: ArtifactManifest, task_configs: dict[str, TaskC
             f"- Source data: `{manifest.source_data_dir}`",
             f"- Tasks discovered: `{len(manifest.tasks)}`",
             f"- Evals discovered: `{total_evals}`",
+            f"- Instruction source: {_instruction_sources(task_configs)}",
             "",
             "| Task | Status | Evals | Passed | Failed | Primary eval |",
             "| --- | --- | --- | --- | --- | --- |",

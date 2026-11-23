@@ -1,8 +1,9 @@
 """Counts over the task audit records of one benchmark.
 
-Only a finished audit is a result. A record that a failed agent call left behind, and a record
-that says ``insufficient_evidence``, are not results (see ``not_counted_reason``). They are left
-out of every count and rate here, and they are reported as their own number: "not counted".
+Only a finished audit of the benchmark's own task is a result. A record that a failed agent call
+left behind, a record that says ``insufficient_evidence``, and the record of a task whose
+instruction text the evidence collector wrote itself, are not results (see ``not_counted_reason``).
+They are left out of every count and rate here, and they are reported as their own number: "not counted".
 
 Shared findings. Every task audit sees the whole benchmark repository, so one defect in shared
 code (a scoring script, a prompt builder) is filed again on every task that uses the code. The
@@ -130,7 +131,7 @@ def summarize_task_audits(
     majors: dict[str, list[tuple[TaskAuditFinding, set[str]]]] = {}  # audited task -> its major findings and the code files each cites
     for record in sorted(records, key=lambda item: item.task_id):
         summary.judgments[record.overall_judgment] = summary.judgments.get(record.overall_judgment, 0) + 1
-        reason = not_counted_reason(record.overall_judgment, record.summary)
+        reason = not_counted_reason(record.overall_judgment, record.summary, record.instruction_source)
         if reason is not None:
             summary.not_counted.setdefault(reason, []).append(record.task_id)
             continue
