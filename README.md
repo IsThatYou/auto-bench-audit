@@ -129,6 +129,20 @@ Put the files in place and run the same command again: the check runs again for 
 
 The task-audit prompt has the matching rule for files that the check cannot see: a file that the auditor cannot open on its own machine is not a defect of the task.
 
+## When one defect shows up on many tasks
+
+Every task audit sees the whole benchmark repository. So one defect in shared code, for example a bug in the scoring script, is filed again on every task that uses the script. The number of tasks with a major finding is then high, although the benchmark has one bug.
+
+The report marks such findings as shared. A major finding (severity 2) is shared when it cites a code file that the major findings of at least 30% of the audited tasks cite, and of at least 3 tasks. Only code files count: many tasks cite a data file that holds all tasks, each for a different defect. The report gives the number of tasks with a major finding twice, with every major finding and with the shared ones left out, and it lists the shared files. No finding is removed, and the task records do not change.
+
+`--shared-threshold` on `audit-tasks` and `run` sets the share. `bench-audit report` writes the report again from the records on disk, without an agent call:
+
+```bash
+bench-audit report --config configs/multi_domain_all/medical_health/clinbench.yaml --shared-threshold 0.5
+```
+
+The mark is a count, not a judgment: a shared finding can still be a true defect of the task, and two tasks can cite one file for two different bugs. Read the listed files before you quote the lower number.
+
 ## Batch of Benchmarks Audit Pipeline
 
 For batch runs across many benchmarks, use `bench-audit batch`. It runs five stages per benchmark: `audit-benchmark` → `collect-evidence` → `sample-tasks` → `audit-tasks` → cleanup. A second run continues where the first one stopped, and tries failed agent calls again.

@@ -196,8 +196,8 @@ def run_quick_audit(
     counts = result.get("summary")
     if counts:
         _log(
-            f"counts:        {counts['audited']} task(s) audited, {counts['tasks_with_major']['count']} with a major finding, "
-            f"{counts['not_counted']['total']} not counted"
+            f"counts:        {counts['audited']} task(s) audited, {counts['tasks_with_major']['count']} with a major finding "
+            f"({counts['tasks_with_major_not_shared']['count']} with shared findings left out), {counts['not_counted']['total']} not counted"
         )
     return {"config_path": str(config_path), "output_root": str(output_root), **result, "failures": failures}
 

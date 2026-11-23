@@ -29,6 +29,7 @@ from ..config import BenchmarkConfig
 from ..evidence_collection import TaskConfig
 from ..progress import ProgressTracker
 from ..report import write_audit_report
+from ..summary import DEFAULT_SHARED_THRESHOLD
 from .context import EvalArtifactPaths, eval_artifact_paths, select_eval_configs, select_task_configs
 from .preflight import missing_input_paths, missing_inputs_record
 from .prompt import render_static_task_audit_prompt, render_task_audit_prompt
@@ -36,7 +37,7 @@ from .prompt import render_static_task_audit_prompt, render_task_audit_prompt
 AUDIT_MODES = {"trajectory", "static"}
 
 
-def _resolve_audit_mode(audit_mode: str | None, config: BenchmarkConfig) -> str:
+def resolve_audit_mode(audit_mode: str | None, config: BenchmarkConfig) -> str:
     """Resolve audit mode: explicit value, or auto-detect from benchmark type."""
     if audit_mode is not None:
         if audit_mode not in AUDIT_MODES:
@@ -62,6 +63,7 @@ def audit_tasks(
     sample_seed: int = 42,
     retry_errors: int = 1,
     check_inputs: bool = True,
+    shared_threshold: float = DEFAULT_SHARED_THRESHOLD,
 ) -> dict[str, Any]:
     """Audit the selected tasks, one agent call per task.
 
@@ -72,8 +74,10 @@ def audit_tasks(
     With ``check_inputs``, a task gets no agent call when a file that its task
     config names is not on disk. Its record says ``insufficient_evidence`` and
     lists the missing paths. The next run checks the files again.
+
+    ``shared_threshold`` goes to the report: see ``bench_audit.summary``.
     """
-    mode = _resolve_audit_mode(audit_mode, config)
+    mode = resolve_audit_mode(audit_mode, config)
     attempts = 1 + max(0, retry_errors)
     output_root = resolve_output_root(config)
     general_rubric = load_general_rubric(general_rubric_path)
@@ -242,7 +246,7 @@ def audit_tasks(
             file=sys.stderr,
         )
 
-    report = write_audit_report(output_root, general_rubric, audit_mode=mode, rubric_path=rubric_txt_path)
+    report = write_audit_report(output_root, general_rubric, audit_mode=mode, rubric_path=rubric_txt_path, shared_threshold=shared_threshold)
     return {
         "output_root": str(output_root),
         "task_audit_dir": str(output_dir),
