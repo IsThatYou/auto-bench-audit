@@ -194,7 +194,9 @@ def run_quick_audit(
     _log(f"report:        {result.get('report_path', output_root / 'audit_report_static.md')}")
     _log(f"findings:      {result.get('task_audit_dir', output_root / 'task_audits_static')}")
     counts = result.get("summary")
-    if counts:
+    if counts and not counts.get("task_level_audit", True):
+        _log("counts:        no task-level audit. The evidence collector found no item-level task in this benchmark (task_unit: none).")
+    elif counts:
         _log(
             f"counts:        {counts['audited']} task(s) audited, {counts['tasks_with_major']['count']} with a major finding "
             f"({counts['tasks_with_major_not_shared']['count']} with shared findings left out), {counts['not_counted']['total']} not counted"

@@ -4,6 +4,51 @@ from pathlib import Path
 
 from ..config import BenchmarkConfig
 
+# The task audit judges `instruction_text` as the benchmark's prompt. A collector that shortened the text, or wrote
+# one where the benchmark has none, made the auditor file defects of a text that no model is given.
+# Some benchmarks have no item-level task. A collector that must list tasks then makes some up, and the task audit
+# files the defects of that made-up framing on every one of them.
+_TASK_UNIT_RULE = """\
+- task_unit: one sentence that says what one task of this benchmark is (for
+  example: "one row of data/test.jsonl: a question and its gold answer").
+  Write the string "none" (not null) when the benchmark has no item-level task:
+  no file or field of it holds separate items that each have an input for a
+  model and an expected outcome or a scoring rule. Examples: a meta-evaluation
+  or a review of other benchmarks, a library or a tool, a training set with no
+  evaluation items, a metric that exists only over a whole set of outputs.
+  With "none":
+  - write task_unit_reason: one or two sentences that say what the benchmark is
+    instead
+  - write an empty tasks list, and write no TaskConfig files
+  - do not make up tasks so that there is something to audit. The benchmark
+    then gets no task audit, and its benchmark-level audit is its audit.
+  A benchmark whose items are scored by a judge model, a rubric, or people
+  still has tasks: "none" is only for a benchmark with no items to score."""
+
+_INSTRUCTION_RULE = """\
+- instruction_text: the prompt that the benchmark gives a model for this task, in
+  full (inline it). It must be the benchmark's text and not yours: do not shorten,
+  summarize, or reword it. The task audit judges this text as the benchmark's prompt.
+- instruction_source: where instruction_text comes from. Give the first of these
+  three values that is possible:
+  - "verbatim": you copied the text without change from a file or a field of the
+    benchmark (a prompt file, a "question" or "prompt" column). Set
+    instruction_path to that file.
+  - "rendered": the benchmark's own code builds the prompt at run time, from a
+    template and the task's fields (and often from input documents). Build the
+    same text: use the benchmark's template or prompt function in your collector
+    script (import it, or copy the template string) and fill it with this task's
+    fields. instruction_text must then hold every part that a model gets (system
+    text, answer-format rules, input documents). Name the template file and the
+    function in audit_notes.
+  - "written_by_collector": the benchmark has no prompt text for this task (for
+    example the prompt field is empty and no code builds a prompt), or you could
+    not render it. Then write a short neutral description of the task, and say in
+    audit_notes why there is no benchmark text. The task audit does not judge a
+    text that you wrote, and the audit report does not count such a task. So use
+    this value only when the two other values are not possible, and never for a
+    text that you copied or rendered."""
+
 
 def render_collect_prompt(
     config: BenchmarkConfig,
@@ -67,7 +112,7 @@ Conventions:
 - Use yaml.safe_dump(..., sort_keys=False) for the manifest
 - Use json.dumps(..., indent=2, sort_keys=True) for TaskConfig
 - Status must be "passed" or "failed" only
-- Derive instruction_text by reading instruction files
+{_INSTRUCTION_RULE}
 - Prefer deterministic ordering by task_id
 - For missing optional files, use null
 - Include all discovered evals per task; do not collapse multiple evals
@@ -213,7 +258,7 @@ Task content — link these back to the actual files from Phase 1:
 - task_bundle_path: path to the root directory or primary data file for this
   task (e.g. the task's subdirectory in benchmark_data_dir, or the source
   JSON/JSONL file that contains it). This is the entry point for the auditor.
-- instruction_text: the full problem/question text for this task (inline it)
+{_INSTRUCTION_RULE}
 - instruction_path: path to the file containing the instruction (if it exists
   as a standalone file), null otherwise
 - reference_answer: the gold/expected outcome for this task (inline the text).
@@ -252,6 +297,7 @@ Task content — link these back to the actual files from Phase 1:
 ArtifactManifest rules:
 - Each TaskEntry must have a task_id and an empty eval_ids list
 - source_data_dir: set to benchmark_data_dir
+{_TASK_UNIT_RULE}
 
 Conventions:
 - Emit absolute paths everywhere

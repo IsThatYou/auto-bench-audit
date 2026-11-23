@@ -340,6 +340,8 @@ def _dispatch(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
             shared_threshold=args.shared_threshold,
         )
         counts = result["summary"]
+        if not counts["task_level_audit"]:
+            print("No task-level audit: the evidence collector found no item-level task in this benchmark (task_unit: none).")
         print(
             f"{counts['audited']} task(s) audited, {counts['not_counted']['total']} not counted. "
             f"Tasks with a major finding: {counts['tasks_with_major']['count']}; "

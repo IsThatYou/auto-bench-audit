@@ -6,6 +6,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .evidence_collection.models import WRITTEN_BY_COLLECTOR, normalize_instruction_source
+
 BENCHMARK_AUDIT_CATEGORIES = {
     "documentation",
     "contamination",
@@ -124,6 +126,9 @@ class TaskAuditRecord:
     summary: str
     confidence: str
     findings: list[TaskAuditFinding] = field(default_factory=list)
+    # Copied from the task config by bench-audit, not given by the auditor: where the task's instruction text
+    # comes from (see evidence_collection.models.INSTRUCTION_SOURCES). None when the collector did not state it.
+    instruction_source: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> TaskAuditRecord:
@@ -138,6 +143,7 @@ class TaskAuditRecord:
             summary=str(data.get("summary") or ""),
             confidence=str(data.get("confidence") or ""),
             findings=[TaskAuditFinding.from_dict(item) for item in data.get("findings", [])],
+            instruction_source=normalize_instruction_source(data.get("instruction_source")),
         )
         record.validate()
         return record
@@ -181,6 +187,7 @@ class TaskAuditRecord:
             "summary": self.summary,
             "confidence": self.confidence,
             "findings": [finding.to_dict() for finding in self.findings],
+            "instruction_source": self.instruction_source,
         }
 
     def save_json(self, path: str | Path) -> None:
@@ -388,16 +395,22 @@ MISSING_INPUTS_MARK = "the task config names files that are missing on this mach
 MAJOR_SEVERITY = 2
 
 
-def not_counted_reason(overall_judgment: str, summary: str) -> str | None:
+INSTRUCTION_WRITTEN_BY_COLLECTOR = "instruction_written_by_collector"
+
+
+def not_counted_reason(overall_judgment: str, summary: str, instruction_source: str | None = None) -> str | None:
     """Return why a task audit record is not the result of an audit, or None when it is one.
 
-    Three kinds of record say nothing about the task, so no count and no rate may include them:
+    Four kinds of record say nothing about the benchmark's task, so no count and no rate may include them:
 
     - ``failed_agent_call``: the agent call failed (see ``is_failed_call``). No audit was done.
     - ``missing_input_files``: bench-audit did not start the audit, because files that the task
       config names are not on disk (see ``is_missing_inputs``).
     - ``insufficient_evidence``: the auditor could not judge the task, for example because it
       could not open the task's input files.
+    - ``instruction_written_by_collector``: the benchmark has no prompt text for the task, and the
+      evidence collector wrote the instruction text itself (``instruction_source`` of the record).
+      The audit ran, but it ran on a task that is partly ours. Its findings stay in the record.
 
     An ``agent_error`` that the auditor itself gave, with a normal verdict, is a result.
     """
@@ -407,6 +420,8 @@ def not_counted_reason(overall_judgment: str, summary: str) -> str | None:
         return "missing_input_files"
     if overall_judgment == INSUFFICIENT_EVIDENCE:
         return INSUFFICIENT_EVIDENCE
+    if instruction_source == WRITTEN_BY_COLLECTOR:
+        return INSTRUCTION_WRITTEN_BY_COLLECTOR
     return None
 
 

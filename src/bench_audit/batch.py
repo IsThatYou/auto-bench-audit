@@ -37,7 +37,7 @@ from typing import Any
 from .agent_cli import EXIT_AGENT_ERRORS
 from .audit_models import record_is_done
 from .config import load_benchmark_config
-from .evidence_collection import DEFAULT_COLLECT_TIMEOUT, collection_is_done
+from .evidence_collection import DEFAULT_COLLECT_TIMEOUT, collection_has_no_task_unit, collection_is_done
 from .paths import checkout_root, env_dir, resolve_output_root
 from .task_audit.sampling import write_task_sample
 
@@ -358,9 +358,15 @@ def run_pipeline_for_config(
                          finished_at=now_iso())
             return False
 
+    # A benchmark with no item-level task (the collector wrote task_unit: none) has no tasks to sample or to audit.
+    no_task_unit = collection_has_no_task_unit(output_root)
+
     # Stage 3a: sample tasks
     stage = "stage_sample_tasks"
-    if not args.force and stage_done_outputs(stage, output_root):
+    if no_task_unit:
+        log(f"{label} STAGE sample_tasks     SKIP (task_unit is none: the benchmark has no item-level task)")
+        update_entry(config, **{stage: "done"})
+    elif not args.force and stage_done_outputs(stage, output_root):
         log(f"{label} STAGE sample_tasks     SKIP (already done)")
         update_entry(config, **{stage: "done"})
     else:
@@ -381,8 +387,13 @@ def run_pipeline_for_config(
 
     # Stage 3b: audit tasks (batch)
     stage = "stage_audit_tasks"
-    pending = pending_task_ids(output_root, args.batch)
-    if not pending:
+    pending = [] if no_task_unit else pending_task_ids(output_root, args.batch)
+    if no_task_unit:
+        # No agent call: this only writes the report, which says that there is no task-level audit.
+        rc = run_subprocess(phase_command("report", "--config", config, "--mode", "static"), audit_run_dir)
+        log(f"{label} STAGE audit_tasks      SKIP (no task-level audit; report {'written' if rc == 0 else f'not written, rc={rc}'})")
+        update_entry(config, **{stage: "done"})
+    elif not pending:
         log(f"{label} STAGE audit_tasks      SKIP (no pending tasks)")
         update_entry(config, **{stage: "done"})
     else:

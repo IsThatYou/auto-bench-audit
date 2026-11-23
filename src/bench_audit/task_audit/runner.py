@@ -90,6 +90,8 @@ def audit_tasks(
         raise FileNotFoundError(f"rubric text file not found: {rubric_txt_path}")
     rubric_text = rubric_txt_path.read_text()
     collection = load_collection_state(output_root)
+    if collection.manifest.has_no_task_unit:
+        return _no_task_level_audit(collection.manifest, output_root, general_rubric, mode, rubric_txt_path, shared_threshold)
 
     # A static audit has no pass/fail results, so there is nothing to filter on.
     # The rubric's task_filter (failed_or_mixed) applies to trajectory audits only.
@@ -255,11 +257,39 @@ def audit_tasks(
         "summary": report["summary"],
         "rubric_path": str(rubric_txt_path),
         "audit_mode": mode,
+        "task_unit": collection.manifest.task_unit,
         "selected_tasks": [task.task_id for task in selected_tasks],
         "written_task_audits": written_paths,
         "skipped_tasks": skipped_tasks,
         "failed_tasks": failed_tasks,
         "not_auditable_tasks": not_auditable_tasks,
+    }
+
+
+def _no_task_level_audit(manifest: Any, output_root: Path, general_rubric: Any, mode: str, rubric_txt_path: Path, shared_threshold: float) -> dict[str, Any]:
+    """The result of ``audit_tasks`` for a benchmark with no item-level task: no agent call, and a report that says so."""
+    reason = f": {manifest.task_unit_reason}" if manifest.task_unit_reason else ""
+    listed = f" The {len(manifest.tasks)} task(s) that the manifest lists are not audited." if manifest.tasks else ""
+    print(
+        f"[bench-audit] no task audit: the evidence collector found no item-level task in this benchmark (task_unit: none){reason}\n"
+        f"[bench-audit] The benchmark-level audit is the audit of this benchmark.{listed}",
+        file=sys.stderr,
+    )
+    report = write_audit_report(output_root, general_rubric, audit_mode=mode, rubric_path=rubric_txt_path, shared_threshold=shared_threshold)
+    return {
+        "output_root": str(output_root),
+        "task_audit_dir": str(task_audit_dir(output_root, general_rubric, audit_mode=mode)),
+        "report_path": report["report_path"],
+        "summary_path": report["summary_path"],
+        "summary": report["summary"],
+        "rubric_path": str(rubric_txt_path),
+        "audit_mode": mode,
+        "task_unit": manifest.task_unit,
+        "selected_tasks": [],
+        "written_task_audits": [],
+        "skipped_tasks": [],
+        "failed_tasks": [],
+        "not_auditable_tasks": [],
     }
 
 
@@ -290,6 +320,7 @@ def _run_single_task(
         payload["selected_eval_ids"] = list(selected_eval_ids)
         payload["rubric_path"] = rubric_path
         payload["audit_trajectory_path"] = str(conversation_log_path) if conversation_log_path else None
+        payload["instruction_source"] = task_config.instruction_source
         return TaskAuditRecord.from_dict(payload)
     except (AgentCliError, ValueError, TypeError, KeyError) as exc:
         return TaskAuditRecord(
@@ -303,6 +334,7 @@ def _run_single_task(
             summary=f"Task audit {FAILED_MARK}: {exc}",
             confidence="low",
             findings=[],
+            instruction_source=task_config.instruction_source,
         )
 
 
@@ -336,6 +368,7 @@ def _run_single_static_task(
         payload["selected_eval_ids"] = []
         payload["rubric_path"] = rubric_path
         payload["audit_trajectory_path"] = str(conversation_log_path) if conversation_log_path else None
+        payload["instruction_source"] = task_config.instruction_source
         return TaskAuditRecord.from_dict(payload)
     except (AgentCliError, ValueError, TypeError, KeyError) as exc:
         return TaskAuditRecord(
@@ -349,6 +382,7 @@ def _run_single_static_task(
             summary=f"Static task audit {FAILED_MARK}: {exc}",
             confidence="low",
             findings=[],
+            instruction_source=task_config.instruction_source,
         )
 
 

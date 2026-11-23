@@ -1,11 +1,34 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+# Where the ``instruction_text`` of a task config comes from. The collector states it.
+# - verbatim: copied without change from a file or a field of the benchmark.
+# - rendered: built with the benchmark's own prompt code or template, so it is the text a model gets.
+# - written_by_collector: the benchmark has no prompt text for the task, and the collector wrote one.
+#   Such a text is not the benchmark's, so the task audit does not judge it and the counts leave the task out.
+VERBATIM = "verbatim"
+RENDERED = "rendered"
+WRITTEN_BY_COLLECTOR = "written_by_collector"
+INSTRUCTION_SOURCES = (VERBATIM, RENDERED, WRITTEN_BY_COLLECTOR)
+
+
+def normalize_instruction_source(value: Any) -> str | None:
+    """Return one of ``INSTRUCTION_SOURCES``, or None when ``value`` is missing or is not one of them."""
+    text = re.sub(r"[\s-]+", "_", str(value or "").strip().lower())
+    return text if text in INSTRUCTION_SOURCES else None
+
+
+# What the collector writes as ``task_unit`` of the manifest when the benchmark has no item-level task
+# (a meta-evaluation, a library, a training set, a metric that exists only over a whole set).
+# Such a benchmark gets no task audit: the benchmark-level audit is its audit.
+NO_TASK_UNIT = "none"
 
 
 @dataclass(slots=True)
@@ -48,6 +71,14 @@ class ArtifactManifest:
     source_data_dir: str = ""
     output_root: str = ""
     tasks: list[TaskEntry] = field(default_factory=list)
+    # What one task of the benchmark is, in one sentence, or NO_TASK_UNIT. None when the collector did not state it.
+    task_unit: str | None = None
+    task_unit_reason: str | None = None  # with NO_TASK_UNIT: what the benchmark is instead
+
+    @property
+    def has_no_task_unit(self) -> bool:
+        """True when the collector found no item-level task, so no task audit runs for this benchmark."""
+        return self.task_unit == NO_TASK_UNIT
 
     def validate(self) -> None:
         if self.manifest_version < 1:
@@ -82,6 +113,8 @@ class ArtifactManifest:
             source_data_dir=str(data.get("source_data_dir") or ""),
             output_root=str(data.get("output_root") or ""),
             tasks=tasks,
+            task_unit=_task_unit(data.get("task_unit")),
+            task_unit_reason=_optional_str(data.get("task_unit_reason")),
         )
         manifest.validate()
         return manifest
@@ -123,6 +156,7 @@ class TaskConfig:
     tests_ref: str | None          # path to tests used to verify success for this task — may be a directory of test files (tb2) or a single eval script or test related files (swe-bench)
     reference_answer: str | None    # inlined reference/gold answer (for static benchmarks without eval runs)
     audit_notes: str | None         # collector-generated guidance for the downstream audit agent — how to navigate the task data, where eval logic lives, benchmark-specific context
+    instruction_source: str | None = None  # one of INSTRUCTION_SOURCES; None when the collector did not state it (older collections)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -148,6 +182,7 @@ class TaskConfig:
             tests_ref=_optional_str(data.get("tests_ref") or data.get("tests_dir")),
             reference_answer=_optional_str(data.get("reference_answer")),
             audit_notes=_optional_str(data.get("audit_notes")),
+            instruction_source=normalize_instruction_source(data.get("instruction_source")),
         )
 
     @classmethod
@@ -230,6 +265,13 @@ def normalize_manifest(manifest: ArtifactManifest) -> ArtifactManifest:
     manifest.manifest_version = max(manifest.manifest_version, 2)
     manifest.validate()
     return manifest
+
+
+def _task_unit(value: Any) -> str | None:
+    text = _optional_str(value)
+    if text is not None and text.strip("\"'`. ").lower() == NO_TASK_UNIT:
+        return NO_TASK_UNIT
+    return text
 
 
 def _optional_str(value: Any) -> str | None:

@@ -7,6 +7,7 @@ from typing import Any
 
 from ..config import BenchmarkConfig
 from ..evidence_collection import TaskConfig
+from ..evidence_collection.models import WRITTEN_BY_COLLECTOR
 from .context import EvalArtifactPaths
 
 _PREAMBLE = """\
@@ -28,6 +29,30 @@ task without that file, set `overall_judgment` to `insufficient_evidence`, name 
 paths in `summary`, and file no finding about them. A missing file is a finding only \
 when the benchmark's own files show that its users do not get the file either (for \
 example, the task's environment definition leaves out a file that the prompt requires).
+"""
+
+# Some benchmarks have no prompt text for a task (an empty prompt field, a prompt that only code builds). The evidence
+# collector then writes a description. Without this rule the auditor files the gaps of that description as defects of the task.
+_WRITTEN_BY_COLLECTOR_RULE = """
+## The instruction text of this task is not the benchmark's text
+`instruction_source` is `written_by_collector`: the benchmark has no prompt text for \
+this task, and the evidence collector of this audit wrote `instruction_text` as a \
+description of the task. No model is given this text. So:
+- File no finding about `instruction_text`: not about its wording, not about its \
+format, not about what it leaves out (inputs, answer format, context), and not about \
+a mismatch between it and the reference answer or the tests.
+- Audit the rest as usual: the reference answer, the evaluation logic, and the \
+task's data. To judge what a model is given, read the benchmark's own files (prompt \
+code, templates, data fields) and not `instruction_text`.
+- If the benchmark ships no prompt for this task at all (for example an empty prompt \
+field), say so in `summary` and file no finding for it. It is one fact about the \
+benchmark, and it is the same fact for every such task."""
+
+_INSTRUCTION_SOURCE_GUIDE = """\
+- instruction_source (present when the evidence collector stated it): where \
+instruction_text comes from. `verbatim`: copied without change from a benchmark \
+file. `rendered`: built with the benchmark's own prompt code. `written_by_collector`: \
+written by the evidence collector, see the section about it below.
 """
 
 _WORKFLOW = """
@@ -55,7 +80,7 @@ _FIELD_GUIDE = """\
 - instruction_text: the exact prompt the agent received — this is what you audit \
 for clarity and completeness. Check this against the reference solution, tests and \
 agent evals to see if the prompt is underspecified or ambiguous.
-
+""" + _INSTRUCTION_SOURCE_GUIDE + """
 Per-eval artifact paths (inside each selected_evals entry):
 - metrics_path: structured test metrics — pass/fail counts and per-test details.
 - test_output_path: raw stdout from the test harness run. Read this to \
@@ -148,10 +173,13 @@ def render_task_audit_prompt(
     prompt_context: dict[str, Any] = {
         "task_id": task_config.task_id,
         "instruction_text": task_config.instruction_text,
+        "instruction_source": task_config.instruction_source,
         "selected_evals": [asdict(e) for e in selected_evals],
         **_task_level_paths(task_config),
     }
     prompt_context = _strip_none(prompt_context)
+    if task_config.instruction_source == WRITTEN_BY_COLLECTOR:
+        parts.append(_WRITTEN_BY_COLLECTOR_RULE)
     parts.append(f"\n## Evals artifacts\n{json.dumps(prompt_context, indent=2)}")
 
     return "\n".join(parts)
@@ -199,6 +227,7 @@ PDFs, ZIPs, code directories, and any other artifact referenced by path.
 _STATIC_FIELD_GUIDE = """\
 - instruction_text: the exact problem/question text — audit this for \
 clarity and completeness.
+""" + _INSTRUCTION_SOURCE_GUIDE + """\
 - reference_answer: the gold/reference answer — check this for correctness, \
 completeness, and whether alternative valid answers exist.
 
@@ -268,6 +297,7 @@ def render_static_task_audit_prompt(
     prompt_context: dict[str, Any] = {
         "task_id": task_config.task_id,
         "instruction_text": inline_or_file("instruction_text", task_config.instruction_text, long_text_dir),
+        "instruction_source": task_config.instruction_source,
         "reference_answer": inline_or_file("reference_answer", task_config.reference_answer, long_text_dir),
     }
     # Add available task-level paths and audit notes
@@ -281,6 +311,8 @@ def render_static_task_audit_prompt(
         prompt_context["benchmark_data_dir"] = config.benchmark_data_dir
 
     prompt_context = _strip_none(prompt_context)
+    if task_config.instruction_source == WRITTEN_BY_COLLECTOR:
+        parts.append(_WRITTEN_BY_COLLECTOR_RULE)
     parts.append(f"\n## Task artifacts\n{json.dumps(prompt_context, indent=2)}")
 
     return "\n".join(parts)
